@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS ตกแต่งหัวข้อ แถบหมวดหมู่ และบังคับเส้นตารางด้านในให้เข้มคมชัดทุกตาราง
+# Custom CSS ตกแต่งหัวข้อ แถบหมวดหมู่ และเพิ่มความเข้มของเส้นขอบตารางทุกตาราง
 st.markdown("""
     <style>
     /* ปรับแต่งหัวข้อหลัก */
@@ -49,7 +49,7 @@ st.markdown("""
         margin-bottom: 8px;
     }
 
-    /* ตกแต่งหัวคอลัมน์ของ Streamlit Data Editor / Dataframe ทั้งหมด */
+    /* บังคับตกแต่งหัวคอลัมน์ของ Streamlit Data Editor / Dataframe ให้เข้มชัดเจน */
     [data-testid="stDataEditor"] th,
     [data-testid="stDataFrame"] th,
     div[role="columnheader"],
@@ -59,34 +59,27 @@ st.markdown("""
         color: #000000 !important;
         font-weight: 900 !important;
         font-size: 1.05rem !important;
-        border-bottom: 2px solid #334155 !important;
-        border-right: 1px solid #64748B !important;
+        border-bottom: 2px solid #64748B !important;
     }
 
-    /* บังคับเพิ่มความเข้มขอบนอกของตาราง */
+    /* ปรับเพิ่มความเข้มของเส้นขอบตารางทุกตารางให้คมชัดเมื่อมองบนจอคอมพิวเตอร์ */
     [data-testid="stDataEditor"],
     [data-testid="stDataFrame"],
     .stDataFrame,
     .stDataEditor,
     div[data-baseweb="table-grid"],
     div[role="grid"] {
-        border: 2px solid #334155 !important;
+        border: 2px solid #94A3B8 !important;
         border-radius: 6px !important;
     }
 
-    /* เจาะลึกเจาะบังคับเส้นตัดในตารางทั้งแนวตั้งและแนวนอนของ Glide Data Grid และ HTML Tables */
+    /* ใส่เส้นขอบเข้มระหว่างเซลล์และแถวตาราง */
     div[role="gridcell"],
     div[role="columnheader"],
-    div[role="row"] > *,
     .gdg-header-cell,
-    .gdg-cell,
-    [class*="dgrid-cell"],
-    [class*="gdg-"],
-    td,
-    th {
-        border-right: 1px solid #64748B !important;
-        border-bottom: 1px solid #64748B !important;
-        box-shadow: inset -1px -1px 0px 0px #64748B !important;
+    .gdg-cell {
+        border-right: 1px solid #CBD5E1 !important;
+        border-bottom: 1px solid #CBD5E1 !important;
     }
     </style>
 """, unsafe_allow_html=True)
