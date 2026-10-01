@@ -15,6 +15,25 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Custom CSS ตกแต่งหัวข้อและตารางให้เข้มชัดเจน
+st.markdown("""
+    <style>
+    /* ปรับแต่งหัวข้อหลักให้เข้มและเด่นชัด */
+    h1, h2, h3 {
+        color: #0F172A !important;
+        font-weight: 800 !important;
+    }
+    /* สไตล์สำหรับแถบแบ่งหมวดสินค้าในตาราง */
+    .cat-header-row {
+        background-color: #1E293B !important;
+        color: #FFFFFF !important;
+        font-weight: bold !important;
+        padding: 6px 12px;
+        border-radius: 4px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 
 SAMPLE_ROWS = [
     {"Category": "Beverage", "Product": "น้ำดื่ม 600 ml", "System qty": 48, "Actual qty": None},
@@ -132,7 +151,6 @@ def parse_excel(file_bytes: bytes, fallback_category_name: str = "ทั่ว�
             if not product or product.casefold() in {"nan", "none"}:
                 continue
             
-            # ดึงหมวดสินค้าจากคอลัมน์ A (Index 0) หากมีข้อมูล ถ้าไม่มีให้ใช้ชื่อไฟล์
             col_a_val = sheet.iloc[row_index, 0]
             col_a_clean = _clean_product(col_a_val)
             if col_a_clean and col_a_clean.casefold() not in {"nan", "none", "ลำดับ", "no", "no."}:
@@ -405,25 +423,22 @@ def parse_pdf_costs(file_bytes: bytes) -> list[dict[str, Any]]:
 
 
 def prepare_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """จัดระเบียบลำดับและแทรกแถบหัวข้อคั่นระหว่างหมวดสินค้า"""
     display_rows = []
     grouped = df.groupby("Category", sort=False)
     
     for cat_name, group in grouped:
-        # แถบแบ่งหมวดสินค้า
         display_rows.append({
-            "ลำดับ": None,
-            "Category": f"📌 [{cat_name}]",
-            "Product": f"--- หมวด: {cat_name} ---",
+            "ลำดับ": "",
+            "Category": f"📂 {cat_name.upper()}",
+            "Product": f"━━━ หมวดสินค้า: {cat_name} ━━━",
             "System qty": None,
-            "Actual qty": None,
+            "Actual qty": "",
             "is_header": True
         })
         
-        # รันลำดับ 1, 2, 3 ใหม่ในหมวดนั้นๆ
         for idx, (_, row) in enumerate(group.iterrows(), start=1):
             row_dict = row.to_dict()
-            row_dict["ลำดับ"] = idx
+            row_dict["ลำดับ"] = str(idx)
             row_dict["is_header"] = False
             display_rows.append(row_dict)
             
@@ -432,7 +447,6 @@ def prepare_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def make_result_table(edited: pd.DataFrame) -> pd.DataFrame:
-    # กรองเอาแถบหัวข้อคั่นหมวดหมู่ออกเพื่อการคำนวณที่ถูกต้อง
     result = edited[edited.get("is_header", False) == False].copy()
     result = result.drop(columns=["is_header"], errors="ignore")
     
@@ -621,13 +635,11 @@ raw_input_df["Actual qty"] = raw_input_df["Actual qty"].astype(object).where(
     raw_input_df["Actual qty"].notna(), ""
 )
 
-# จัดโครงสร้างตารางภาพรวม รันลำดับ 1 ใหม่ทุกหมวด และเพิ่มเส้นคั่นหมวด
 input_df = prepare_display_dataframe(raw_input_df)
 
 st.subheader("กรอกยอดนับจริง")
 st.caption("แก้ไขเฉพาะคอลัมน์ “นับจริงหน้าร้าน” จากนั้นดูผลสรุปด้านล่าง")
 
-# Tab navigation for categories
 categories = list(raw_input_df["Category"].unique())
 tab_titles = ["ภาพรวม (รวมทุกหมวด)"] + [f"📦 {cat}" for cat in categories]
 tabs = st.tabs(tab_titles)
@@ -639,7 +651,7 @@ with tabs[0]:
         use_container_width=True,
         num_rows="dynamic",
         column_config={
-            "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f", disabled=True),
+            "ลำดับ": st.column_config.TextColumn("ลำดับ", disabled=True),
             "Category": st.column_config.TextColumn("หมวดสินค้า", disabled=True),
             "Product": st.column_config.TextColumn("สินค้า", disabled=True),
             "System qty": st.column_config.NumberColumn("ในระบบ", disabled=True),
@@ -648,6 +660,7 @@ with tabs[0]:
                 validate=r"^\s*\d*(?:\.\d+)?\s*$",
                 help="ใส่จำนวนที่นับได้จริงเป็นตัวเลข",
             ),
+            "is_header": None,
         },
         key="inventory_editor_all",
     )
