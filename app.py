@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS ตกแต่งหัวข้อและตารางให้เข้มชัดเจน
+# Custom CSS ตกแต่งหัวข้อและหัวตารางให้เป็นตัวหนาสีเข้มชัดเจน
 st.markdown("""
     <style>
     /* ปรับแต่งหัวข้อหลักให้เข้มและเด่นชัด */
@@ -23,6 +23,17 @@ st.markdown("""
         color: #0F172A !important;
         font-weight: 800 !important;
     }
+    
+    /* ปรับแต่งหัวคอลัมน์ของตาราง (Header) ให้เป็นตัวหนาสีเข้ม */
+    th[data-testid="stTableColumnHeader"] div,
+    div[data-testid="stTableHeader"] div,
+    [data-testid="stDataEditor"] th,
+    [data-testid="stDataEditor"] th span {
+        color: #0F172A !important;
+        font-weight: 800 !important;
+        font-size: 1.05rem !important;
+    }
+    
     /* สไตล์สำหรับแถบแบ่งหมวดสินค้าในตาราง */
     .cat-header-row {
         background-color: #1E293B !important;
