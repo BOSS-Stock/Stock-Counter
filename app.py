@@ -17,11 +17,11 @@ st.set_page_config(
 
 
 SAMPLE_ROWS = [
-    {"Product": "น้ำดื่ม 600 ml", "System qty": 48, "Actual qty": None},
-    {"Product": "กาแฟกระป๋อง สูตรดั้งเดิม", "System qty": 36, "Actual qty": None},
-    {"Product": "ขนมปังโฮลวีต", "System qty": 24, "Actual qty": None},
-    {"Product": "นมสดพาสเจอร์ไรส์ 2 ลิตร", "System qty": 18, "Actual qty": None},
-    {"Product": "น้ำผลไม้รวม", "System qty": 30, "Actual qty": None},
+    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "น้ำดื่ม 600 ml", "System qty": 48, "Actual qty": None},
+    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "กาแฟกระป๋อง สูตรดั้งเดิม", "System qty": 36, "Actual qty": None},
+    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "ขนมปังโฮลวีต", "System qty": 24, "Actual qty": None},
+    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "นมสดพาสเจอร์ไรส์ 2 ลิตร", "System qty": 18, "Actual qty": None},
+    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "น้ำผลไม้รวม", "System qty": 30, "Actual qty": None},
 ]
 
 SYSTEM_ADD_COLUMNS = (6, 7, 8, 9, 10)  # Excel columns 7, 8, 9, 10, 11
@@ -81,15 +81,13 @@ def _clean_product(value: Any) -> str:
 
 
 def _combine_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # Combine repeated product lines, which is common when a workbook has
-    # several store or category sheets.
     combined: dict[str, dict[str, Any]] = {}
     for row in rows:
-        key = re.sub(r"\s+", " ", row["Product"]).casefold()
+        key = (row.get("Category", ""), re.sub(r"\s+", " ", row["Product"]).casefold())
         if key in combined:
             combined[key]["System qty"] += row["System qty"]
         else:
-            combined[key] = row
+            combined[key] = row.copy()
     return list(combined.values())
 
 
@@ -97,7 +95,7 @@ def _product_key(value: Any) -> str:
     return re.sub(r"\s+", " ", _clean_product(value)).casefold()
 
 
-def parse_excel(file_bytes: bytes) -> list[dict[str, Any]]:
+def parse_excel(file_bytes: bytes, category_name: str = "ทั่วไป") -> list[dict[str, Any]]:
     workbook = pd.read_excel(io.BytesIO(file_bytes), sheet_name=None)
     rows: list[dict[str, Any]] = []
     product_candidates = (
@@ -121,8 +119,6 @@ def parse_excel(file_bytes: bytes) -> list[dict[str, Any]]:
         columns = list(sheet.columns)
         product_column = _find_column(columns, product_candidates)
 
-        # If the export uses custom headers, choose the first text-like column
-        # as a practical fallback.
         if product_column is None:
             for column in columns:
                 if sheet[column].map(_clean_product).str.len().gt(0).any():
@@ -145,6 +141,7 @@ def parse_excel(file_bytes: bytes) -> list[dict[str, Any]]:
             )
             rows.append(
                 {
+                    "Category": category_name,
                     "Product": product,
                     "System qty": additions - deductions,
                     "Actual qty": None,
@@ -153,10 +150,8 @@ def parse_excel(file_bytes: bytes) -> list[dict[str, Any]]:
 
     if not eligible_sheet_found:
         raise ValueError(
-            "ไฟล์ Excel ต้องมีอย่างน้อย 14 คอลัมน์ เพื่อคำนวณยอดในระบบจากคอลัมน์ 7+8+9+10+11-12-14"
+            f"ไฟล์ {category_name} ต้องมีอย่างน้อย 14 คอลัมน์ เพื่อคำนวณยอดในระบบ"
         )
-    # Keep both positive and negative balances, but remove products whose
-    # calculated system balance is exactly zero.
     return [row for row in _combine_rows(rows) if row["System qty"] != 0]
 
 
@@ -410,7 +405,8 @@ def make_result_table(edited: pd.DataFrame) -> pd.DataFrame:
     result["Status"] = result["Diff"].map(
         lambda diff: "ตรงกัน" if diff == 0 else ("เกิน" if diff > 0 else "ขาด")
     )
-    return result[["ลำดับ", "Product", "System qty", "Actual qty", "Diff", "Status"]]
+    cols = ["ลำดับ", "Category", "Product", "System qty", "Actual qty", "Diff", "Status"]
+    return result[[c for c in cols if c in result.columns]]
 
 
 def make_cost_result_table(
@@ -420,6 +416,7 @@ def make_cost_result_table(
         return pd.DataFrame(
             columns=[
                 "ลำดับ",
+                "Category",
                 "Product",
                 "System qty",
                 "Actual qty",
@@ -440,6 +437,7 @@ def make_cost_result_table(
         return pd.DataFrame(
             columns=[
                 "ลำดับ",
+                "Category",
                 "Product",
                 "System qty",
                 "Actual qty",
@@ -453,19 +451,19 @@ def make_cost_result_table(
 
     matched["Shortage cost"] = matched["Diff"].clip(upper=0) * matched["Cost"]
     matched["Overage cost"] = matched["Diff"].clip(lower=0) * matched["Cost"]
-    return matched[
-        [
-            "ลำดับ",
-            "Product",
-            "System qty",
-            "Actual qty",
-            "Diff",
-            "Status",
-            "Cost",
-            "Shortage cost",
-            "Overage cost",
-        ]
+    cols = [
+        "ลำดับ",
+        "Category",
+        "Product",
+        "System qty",
+        "Actual qty",
+        "Diff",
+        "Status",
+        "Cost",
+        "Shortage cost",
+        "Overage cost",
     ]
+    return matched[[c for c in cols if c in matched.columns]]
 
 
 def status_cell_style(status: Any) -> str:
@@ -500,28 +498,37 @@ if "cost_source_label" not in st.session_state:
 
 with st.sidebar:
     st.header("นำเข้าข้อมูล")
-    uploaded_file = st.file_uploader(
-        "อัปโหลดไฟล์ Excel สต็อก",
+    uploaded_files = st.file_uploader(
+        "อัปโหลดไฟล์ Excel สต็อก (สูงสุด 11 ไฟล์)",
         type=["xlsx", "xls"],
-        help="รองรับไฟล์ Excel ที่มีคอลัมน์ชื่อสินค้าและจำนวนคงเหลือในระบบ",
+        accept_multiple_files=True,
+        help="รองรับการอัปโหลดได้สูงสุด 11 ไฟล์พร้อมกัน โดยระบบจะแยกหมวดสินค้าตามชื่อไฟล์",
     )
-    if uploaded_file is not None:
-        file_key = f"{uploaded_file.name}:{uploaded_file.size}"
-        if st.session_state.get("uploaded_file_key") != file_key:
+    if uploaded_files:
+        if len(uploaded_files) > 11:
+            st.error("สามารถอัปโหลดได้สูงสุด 11 ไฟล์เท่านั้นครับ")
+            uploaded_files = uploaded_files[:11]
+
+        files_key = "-".join([f"{f.name}:{f.size}" for f in uploaded_files])
+        if st.session_state.get("uploaded_files_key") != files_key:
+            all_parsed_rows: list[dict[str, Any]] = []
+            success_files = []
             with st.spinner("กำลังอ่านรายการสินค้าจาก Excel..."):
-                try:
-                    parsed_rows = parse_excel(uploaded_file.getvalue())
-                except Exception as error:
-                    st.error(f"อ่านไฟล์ไม่สำเร็จ: {error}")
-                    parsed_rows = []
-            st.session_state["uploaded_file_key"] = file_key
-            if parsed_rows:
-                load_rows(parsed_rows, uploaded_file.name)
-                st.success(f"พบ {len(parsed_rows)} รายการ")
+                for file in uploaded_files:
+                    category_name = file.name.rsplit(".", 1)[0]
+                    try:
+                        parsed = parse_excel(file.getvalue(), category_name=category_name)
+                        all_parsed_rows.extend(parsed)
+                        success_files.append(category_name)
+                    except Exception as error:
+                        st.error(f"อ่านไฟล์ {file.name} ไม่สำเร็จ: {error}")
+
+            st.session_state["uploaded_files_key"] = files_key
+            if all_parsed_rows:
+                load_rows(all_parsed_rows, f"อัปโหลด {len(success_files)} หมวดสินค้า")
+                st.success(f"นำเข้าข้อมูลเรียบร้อย {len(all_parsed_rows)} รายการ จาก {len(success_files)} ไฟล์")
             else:
-                st.warning(
-                    "ไม่พบรายการสินค้าอัตโนมัติ ลองตรวจว่าไฟล์มีคอลัมน์ชื่อสินค้าและจำนวนคงเหลือในระบบ"
-                )
+                st.warning("ไม่พบรายการสินค้าจากไฟล์ที่อัปโหลด")
 
     st.divider()
     st.subheader("ไฟล์ต้นทุนสินค้า")
@@ -549,8 +556,8 @@ with st.sidebar:
             elif not st.session_state.get("cost_source_label"):
                 st.warning("ไม่พบรายการต้นทุนจากไฟล์ PDF")
 
-    if st.button("เริ่มจากตัวอย่าง", width="stretch"):
-        st.session_state.pop("uploaded_file_key", None)
+    if st.button("เริ่มจากตัวอย่าง", use_container_width=True):
+        st.session_state.pop("uploaded_files_key", None)
         load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน")
         st.rerun()
 
@@ -570,6 +577,9 @@ if not rows:
     st.stop()
 
 input_df = pd.DataFrame(rows)
+if "Category" not in input_df.columns:
+    input_df["Category"] = "ทั่วไป"
+
 input_df.insert(0, "ลำดับ", range(1, len(input_df) + 1))
 input_df["Actual qty"] = input_df["Actual qty"].astype(object).where(
     input_df["Actual qty"].notna(), ""
@@ -577,23 +587,47 @@ input_df["Actual qty"] = input_df["Actual qty"].astype(object).where(
 
 st.subheader("กรอกยอดนับจริง")
 st.caption("แก้ไขเฉพาะคอลัมน์ “นับจริงหน้าร้าน” จากนั้นดูผลสรุปด้านล่าง")
-edited_df = st.data_editor(
-    input_df,
-    hide_index=True,
-    width="stretch",
-    num_rows="dynamic",
-    column_config={
-        "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f", disabled=True),
-        "Product": st.column_config.TextColumn("สินค้า", disabled=True),
-        "System qty": st.column_config.NumberColumn("ในระบบ", disabled=True),
-        "Actual qty": st.column_config.TextColumn(
-            "นับจริงหน้าร้าน",
-            validate=r"^\s*\d*(?:\.\d+)?\s*$",
-            help="ใส่จำนวนที่นับได้จริงเป็นตัวเลข",
-        ),
-    },
-    key="inventory_editor",
-)
+
+# Tab navigation for categories
+categories = list(input_df["Category"].unique())
+tab_titles = ["ภาพรวม (รวมทุกหมวด)"] + [f"📦 {cat}" for cat in categories]
+tabs = st.tabs(tab_titles)
+
+with tabs[0]:
+    edited_df = st.data_editor(
+        input_df,
+        hide_index=True,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f", disabled=True),
+            "Category": st.column_config.TextColumn("หมวดสินค้า", disabled=True),
+            "Product": st.column_config.TextColumn("สินค้า", disabled=True),
+            "System qty": st.column_config.NumberColumn("ในระบบ", disabled=True),
+            "Actual qty": st.column_config.TextColumn(
+                "นับจริงหน้าร้าน",
+                validate=r"^\s*\d*(?:\.\d+)?\s*$",
+                help="ใส่จำนวนที่นับได้จริงเป็นตัวเลข",
+            ),
+        },
+        key="inventory_editor_all",
+    )
+
+for i, cat in enumerate(categories):
+    with tabs[i + 1]:
+        cat_df = input_df[input_df["Category"] == cat].copy()
+        st.dataframe(
+            cat_df,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
+                "Category": st.column_config.TextColumn("หมวดสินค้า"),
+                "Product": st.column_config.TextColumn("สินค้า"),
+                "System qty": st.column_config.NumberColumn("ในระบบ"),
+                "Actual qty": st.column_config.TextColumn("นับจริงหน้าร้าน"),
+            },
+        )
 
 result_df = make_result_table(edited_df)
 actual_entered = result_df["Actual qty"].notna()
@@ -629,9 +663,10 @@ if actual_entered.any():
     st.dataframe(
         filtered.style.map(status_cell_style, subset=["Status"]),
         hide_index=True,
-        width="stretch",
+        use_container_width=True,
         column_config={
             "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
+            "Category": st.column_config.TextColumn("หมวดสินค้า"),
             "Product": st.column_config.TextColumn("สินค้า"),
             "System qty": st.column_config.NumberColumn("ในระบบ"),
             "Actual qty": st.column_config.NumberColumn("นับจริง", format="%.2f"),
@@ -682,9 +717,10 @@ if actual_entered.any():
             st.dataframe(
                 cost_result_df.style.map(status_cell_style, subset=["Status"]),
                 hide_index=True,
-                width="stretch",
+                use_container_width=True,
                 column_config={
                     "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
+                    "Category": st.column_config.TextColumn("หมวดสินค้า"),
                     "Product": st.column_config.TextColumn("สินค้า"),
                     "System qty": st.column_config.NumberColumn("ในระบบ"),
                     "Actual qty": st.column_config.NumberColumn(
