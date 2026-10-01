@@ -39,7 +39,6 @@ st.markdown("""
         -webkit-text-stroke: 0.4px #000000 !important;
     }
 
-    /* ปรับความเข้มตัวอักษรในส่วน Header ของ Glide Data Grid (Internal Table Engine) */
     .gdg-header-cell,
     [class*="header"] {
         color: #000000 !important;
@@ -441,10 +440,11 @@ def prepare_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     grouped = df.groupby("Category", sort=False)
     
     for cat_name, group in grouped:
+        # เคลียร์คอลัมน์หมวดสินค้าฝั่งซ้าย ป้องกันข้อความซ้ำซ้อน
         display_rows.append({
             "ลำดับ": "",
-            "Category": f"📂 {cat_name.upper()}",
-            "Product": f"━━━ หมวดสินค้า: {cat_name} ━━━",
+            "Category": "",
+            "Product": f"━━━━━━ 📦 หมวดสินค้า: {cat_name.upper()} ━━━━━━",
             "System qty": None,
             "Actual qty": "",
             "is_header": True
