@@ -95,7 +95,7 @@ def _product_key(value: Any) -> str:
     return re.sub(r"\s+", " ", _clean_product(value)).casefold()
 
 
-def parse_excel(file_bytes: bytes, category_name: str = "ทั่วไป") -> list[dict[str, Any]]:
+def parse_excel(file_bytes: bytes, fallback_category_name: str = "ทั่วไป") -> list[dict[str, Any]]:
     workbook = pd.read_excel(io.BytesIO(file_bytes), sheet_name=None)
     rows: list[dict[str, Any]] = []
     product_candidates = (
@@ -131,6 +131,15 @@ def parse_excel(file_bytes: bytes, category_name: str = "ทั่วไป") ->
             product = _clean_product(product_value)
             if not product or product.casefold() in {"nan", "none"}:
                 continue
+            
+            # ดึงหมวดสินค้าจากคอลัมน์ A (Index 0) หากมีข้อมูล ถ้าไม่มีให้ใช้ชื่อไฟล์
+            col_a_val = sheet.iloc[row_index, 0]
+            col_a_clean = _clean_product(col_a_val)
+            if col_a_clean and col_a_clean.casefold() not in {"nan", "none", "ลำดับ", "no", "no."}:
+                category_name = col_a_clean
+            else:
+                category_name = fallback_category_name
+
             additions = sum(
                 _number_from_text(str(sheet.iloc[row_index, column_index])) or 0
                 for column_index in SYSTEM_ADD_COLUMNS
@@ -150,7 +159,7 @@ def parse_excel(file_bytes: bytes, category_name: str = "ทั่วไป") ->
 
     if not eligible_sheet_found:
         raise ValueError(
-            f"ไฟล์ {category_name} ต้องมีอย่างน้อย 14 คอลัมน์ เพื่อคำนวณยอดในระบบ"
+            f"ไฟล์ต้องมีอย่างน้อย 14 คอลัมน์ เพื่อคำนวณยอดในระบบ"
         )
     return [row for row in _combine_rows(rows) if row["System qty"] != 0]
 
@@ -502,7 +511,7 @@ with st.sidebar:
         "อัปโหลดไฟล์ Excel สต็อก (สูงสุด 11 ไฟล์)",
         type=["xlsx", "xls"],
         accept_multiple_files=True,
-        help="รองรับการอัปโหลดได้สูงสุด 11 ไฟล์พร้อมกัน โดยระบบจะแยกหมวดสินค้าตามชื่อไฟล์",
+        help="รองรับการอัปโหลดได้สูงสุด 11 ไฟล์พร้อมกัน โดยระบบจะดึงหมวดสินค้าจากคอลัมน์ A",
     )
     if uploaded_files:
         if len(uploaded_files) > 11:
@@ -515,18 +524,18 @@ with st.sidebar:
             success_files = []
             with st.spinner("กำลังอ่านรายการสินค้าจาก Excel..."):
                 for file in uploaded_files:
-                    category_name = file.name.rsplit(".", 1)[0]
+                    fallback_cat = file.name.rsplit(".", 1)[0]
                     try:
-                        parsed = parse_excel(file.getvalue(), category_name=category_name)
+                        parsed = parse_excel(file.getvalue(), fallback_category_name=fallback_cat)
                         all_parsed_rows.extend(parsed)
-                        success_files.append(category_name)
+                        success_files.append(fallback_cat)
                     except Exception as error:
                         st.error(f"อ่านไฟล์ {file.name} ไม่สำเร็จ: {error}")
 
             st.session_state["uploaded_files_key"] = files_key
             if all_parsed_rows:
-                load_rows(all_parsed_rows, f"อัปโหลด {len(success_files)} หมวดสินค้า")
-                st.success(f"นำเข้าข้อมูลเรียบร้อย {len(all_parsed_rows)} รายการ จาก {len(success_files)} ไฟล์")
+                load_rows(all_parsed_rows, f"อัปโหลด {len(success_files)} ไฟล์เรียบร้อย")
+                st.success(f"นำเข้าข้อมูลเรียบร้อย {len(all_parsed_rows)} รายการ")
             else:
                 st.warning("ไม่พบรายการสินค้าจากไฟล์ที่อัปโหลด")
 
