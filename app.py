@@ -17,11 +17,11 @@ st.set_page_config(
 
 
 SAMPLE_ROWS = [
-    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "น้ำดื่ม 600 ml", "System qty": 48, "Actual qty": None},
-    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "กาแฟกระป๋อง สูตรดั้งเดิม", "System qty": 36, "Actual qty": None},
-    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "ขนมปังโฮลวีต", "System qty": 24, "Actual qty": None},
-    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "นมสดพาสเจอร์ไรส์ 2 ลิตร", "System qty": 18, "Actual qty": None},
-    {"Category": "หมวดสินค้าตัวอย่าง", "Product": "น้ำผลไม้รวม", "System qty": 30, "Actual qty": None},
+    {"Category": "Beverage", "Product": "น้ำดื่ม 600 ml", "System qty": 48, "Actual qty": None},
+    {"Category": "Beverage", "Product": "กาแฟกระป๋อง สูตรดั้งเดิม", "System qty": 36, "Actual qty": None},
+    {"Category": "Candy", "Product": "ขนมปังโฮลวีต", "System qty": 24, "Actual qty": None},
+    {"Category": "Candy", "Product": "นมสดพาสเจอร์ไรส์ 2 ลิตร", "System qty": 18, "Actual qty": None},
+    {"Category": "Candy", "Product": "น้ำผลไม้รวม", "System qty": 30, "Actual qty": None},
 ]
 
 SYSTEM_ADD_COLUMNS = (6, 7, 8, 9, 10)  # Excel columns 7, 8, 9, 10, 11
@@ -404,10 +404,38 @@ def parse_pdf_costs(file_bytes: bytes) -> list[dict[str, Any]]:
     return combined_rows
 
 
+def prepare_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """จัดระเบียบลำดับและแทรกแถบหัวข้อคั่นระหว่างหมวดสินค้า"""
+    display_rows = []
+    grouped = df.groupby("Category", sort=False)
+    
+    for cat_name, group in grouped:
+        # แถบแบ่งหมวดสินค้า
+        display_rows.append({
+            "ลำดับ": None,
+            "Category": f"📌 [{cat_name}]",
+            "Product": f"--- หมวด: {cat_name} ---",
+            "System qty": None,
+            "Actual qty": None,
+            "is_header": True
+        })
+        
+        # รันลำดับ 1, 2, 3 ใหม่ในหมวดนั้นๆ
+        for idx, (_, row) in enumerate(group.iterrows(), start=1):
+            row_dict = row.to_dict()
+            row_dict["ลำดับ"] = idx
+            row_dict["is_header"] = False
+            display_rows.append(row_dict)
+            
+    res_df = pd.DataFrame(display_rows)
+    return res_df
+
+
 def make_result_table(edited: pd.DataFrame) -> pd.DataFrame:
-    result = edited.copy()
-    result = result.drop(columns=["ลำดับ"], errors="ignore")
-    result.insert(0, "ลำดับ", range(1, len(result) + 1))
+    # กรองเอาแถบหัวข้อคั่นหมวดหมู่ออกเพื่อการคำนวณที่ถูกต้อง
+    result = edited[edited.get("is_header", False) == False].copy()
+    result = result.drop(columns=["is_header"], errors="ignore")
+    
     result["System qty"] = pd.to_numeric(result["System qty"], errors="coerce").fillna(0)
     result["Actual qty"] = pd.to_numeric(result["Actual qty"], errors="coerce")
     result["Diff"] = result["Actual qty"].fillna(0) - result["System qty"]
@@ -585,20 +613,22 @@ if not rows:
     st.info("ยังไม่มีรายการสินค้า กรุณาอัปโหลดไฟล์ Excel ที่แถบด้านซ้าย")
     st.stop()
 
-input_df = pd.DataFrame(rows)
-if "Category" not in input_df.columns:
-    input_df["Category"] = "ทั่วไป"
+raw_input_df = pd.DataFrame(rows)
+if "Category" not in raw_input_df.columns:
+    raw_input_df["Category"] = "ทั่วไป"
 
-input_df.insert(0, "ลำดับ", range(1, len(input_df) + 1))
-input_df["Actual qty"] = input_df["Actual qty"].astype(object).where(
-    input_df["Actual qty"].notna(), ""
+raw_input_df["Actual qty"] = raw_input_df["Actual qty"].astype(object).where(
+    raw_input_df["Actual qty"].notna(), ""
 )
+
+# จัดโครงสร้างตารางภาพรวม รันลำดับ 1 ใหม่ทุกหมวด และเพิ่มเส้นคั่นหมวด
+input_df = prepare_display_dataframe(raw_input_df)
 
 st.subheader("กรอกยอดนับจริง")
 st.caption("แก้ไขเฉพาะคอลัมน์ “นับจริงหน้าร้าน” จากนั้นดูผลสรุปด้านล่าง")
 
 # Tab navigation for categories
-categories = list(input_df["Category"].unique())
+categories = list(raw_input_df["Category"].unique())
 tab_titles = ["ภาพรวม (รวมทุกหมวด)"] + [f"📦 {cat}" for cat in categories]
 tabs = st.tabs(tab_titles)
 
@@ -624,7 +654,8 @@ with tabs[0]:
 
 for i, cat in enumerate(categories):
     with tabs[i + 1]:
-        cat_df = input_df[input_df["Category"] == cat].copy()
+        cat_df = raw_input_df[raw_input_df["Category"] == cat].copy()
+        cat_df.insert(0, "ลำดับ", range(1, len(cat_df) + 1))
         st.dataframe(
             cat_df,
             hide_index=True,
