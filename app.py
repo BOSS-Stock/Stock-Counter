@@ -15,32 +15,35 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS ตกแต่งหัวข้อและหัวตารางให้เป็นตัวหนาสีเข้มชัดเจน
+# Custom CSS ตกแต่งหัวตารางแบบดำสนิทและมีพื้นหลังชัดเจน
 st.markdown("""
     <style>
-    /* ปรับแต่งหัวข้อหลักให้เข้มและเด่นชัด */
+    /* ปรับแต่งหัวข้อหลัก */
     h1, h2, h3 {
-        color: #0F172A !important;
-        font-weight: 800 !important;
+        color: #000000 !important;
+        font-weight: 900 !important;
     }
     
-    /* ปรับแต่งหัวคอลัมน์ของตาราง (Header) ให้เป็นตัวหนาสีเข้ม */
-    th[data-testid="stTableColumnHeader"] div,
-    div[data-testid="stTableHeader"] div,
+    /* บังคับตกแต่งหัวคอลัมน์ของ Streamlit Data Editor / Dataframe ทั้งหมด */
     [data-testid="stDataEditor"] th,
-    [data-testid="stDataEditor"] th span {
-        color: #0F172A !important;
-        font-weight: 800 !important;
-        font-size: 1.05rem !important;
+    [data-testid="stDataFrame"] th,
+    div[role="columnheader"],
+    div[role="columnheader"] span,
+    div[role="columnheader"] div,
+    .st-data-grid-header-cell,
+    .stGridHeaderCell {
+        background-color: #E2E8F0 !important;
+        color: #000000 !important;
+        font-weight: 900 !important;
+        font-size: 1.1rem !important;
+        -webkit-text-stroke: 0.4px #000000 !important;
     }
-    
-    /* สไตล์สำหรับแถบแบ่งหมวดสินค้าในตาราง */
-    .cat-header-row {
-        background-color: #1E293B !important;
-        color: #FFFFFF !important;
-        font-weight: bold !important;
-        padding: 6px 12px;
-        border-radius: 4px;
+
+    /* ปรับความเข้มตัวอักษรในส่วน Header ของ Glide Data Grid (Internal Table Engine) */
+    .gdg-header-cell,
+    [class*="header"] {
+        color: #000000 !important;
+        font-weight: 900 !important;
     }
     </style>
 """, unsafe_allow_html=True)
