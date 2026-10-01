@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS ตกแต่งหัวข้อ แถบหมวดหมู่ และสไตล์ตาราง
+# Custom CSS ตกแต่งหัวข้อ และสไตล์ตาราง
 st.markdown("""
     <style>
     /* ปรับแต่งหัวข้อหลัก */
@@ -36,6 +36,17 @@ st.markdown("""
         margin-bottom: 8px;
         display: flex;
         align-items: center;
+    }
+
+    /* ไฮไลต์หัวข้อสรุปรายหมวดสินค้า */
+    .cat-summary-header {
+        background-color: #0F172A;
+        color: #F59E0B;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-weight: 800;
+        font-size: 1.05rem;
+        margin-bottom: 8px;
     }
 
     /* บังคับตกแต่งหัวคอลัมน์ของ Streamlit Data Editor / Dataframe ให้เข้มชัดเจน */
@@ -762,47 +773,9 @@ if actual_entered.any():
                 f"จับคู่ชื่อสินค้าได้ {len(cost_result_df)} รายการ "
                 f"จากไฟล์ต้นทุน {len(cost_rows)} รายการ"
             )
-            
-            # --- 1. สรุปมูลค่าต้นทุนแยกตามหมวดสินค้า ---
-            st.write("##### 📌 สรุปยอดต้นทุนแยกตามหมวดสินค้า")
             cost_cats = list(cost_result_df["Category"].unique())
-            
-            for cat in cost_cats:
-                cat_cost_df = cost_result_df[cost_result_df["Category"] == cat]
-                c_short_signed = float(cat_cost_df["Shortage cost"].sum())
-                c_short_total = abs(c_short_signed)
-                c_over_total = float(cat_cost_df["Overage cost"].sum())
-                c_net_total = c_over_total + c_short_signed
-                
-                with st.expander(f"📦 หมวด {cat.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท", expanded=True):
-                    cat_metrics = st.columns(3)
-                    cat_metrics[0].metric(f"หมวด {cat} — ต้นทุนขาด", f"{c_short_total:,.2f} บาท")
-                    cat_metrics[1].metric(f"หมวด {cat} — ต้นทุนเกิน", f"{c_over_total:,.2f} บาท")
-                    cat_metrics[2].metric(f"หมวด {cat} — ขาด/เกินสุทธิ", f"{c_net_total:,.2f} บาท")
 
-            st.divider()
-
-            # --- 2. สรุปยอดรวมต้นทุนภาพรวมทุกหมวด (Grand Total) ---
-            st.write("##### 🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)")
-            shortage_cost_signed_total = float(cost_result_df["Shortage cost"].sum())
-            shortage_cost_total = abs(shortage_cost_signed_total)
-            overage_cost_total = float(cost_result_df["Overage cost"].sum())
-            net_cost_total = overage_cost_total + shortage_cost_signed_total
-
-            cost_metric_columns = st.columns(3)
-            cost_metric_columns[0].metric(
-                "ต้นทุนสินค้าขาดรวมทุกหมวด", f"{shortage_cost_total:,.2f} บาท"
-            )
-            cost_metric_columns[1].metric(
-                "ต้นทุนสินค้าเกินรวมทุกหมวด", f"{overage_cost_total:,.2f} บาท"
-            )
-            cost_metric_columns[2].metric(
-                "สรุปต้นทุนขาด/เกินสุทธิรวมทุกหมวด", f"{net_cost_total:,.2f} บาท"
-            )
-
-            st.divider()
-
-            # --- 3. แสดงตารางรายละเอียดต้นทุนแบบแยกหมวดหมู่ ---
+            # --- 1. แสดงตารางรายละเอียดต้นทุนแยกตามหมวดสินค้า ขึ้นมาก่อน ---
             st.write("##### 📋 รายละเอียดตารางต้นทุนแยกตามหมวดสินค้า")
             for cat in cost_cats:
                 st.markdown(f'<div class="cat-banner">💰 รายละเอียดต้นทุน — หมวด: {cat.upper()}</div>', unsafe_allow_html=True)
@@ -834,6 +807,46 @@ if actual_entered.any():
                 data=cost_csv_bytes,
                 file_name="stock-cost-result.csv",
                 mime="text/csv",
+            )
+
+            st.divider()
+
+            # --- 2. สรุปมูลค่าต้นทุนแยกตามหมวดสินค้า พร้อม Highlight หัวข้อ ---
+            st.write("##### 📌 สรุปยอดต้นทุนแยกตามหมวดสินค้า")
+            
+            for cat in cost_cats:
+                cat_cost_df = cost_result_df[cost_result_df["Category"] == cat]
+                c_short_signed = float(cat_cost_df["Shortage cost"].sum())
+                c_short_total = abs(c_short_signed)
+                c_over_total = float(cat_cost_df["Overage cost"].sum())
+                c_net_total = c_over_total + c_short_signed
+                
+                # Highlight แถบหัวข้อของแต่ละหมวดให้เห็นชัดเจน
+                st.markdown(f'<div class="cat-summary-header">📦 หมวด {cat.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท</div>', unsafe_allow_html=True)
+                
+                cat_metrics = st.columns(3)
+                cat_metrics[0].metric(f"หมวด {cat} — ต้นทุนขาด", f"{c_short_total:,.2f} บาท")
+                cat_metrics[1].metric(f"หมวด {cat} — ต้นทุนเกิน", f"{c_over_total:,.2f} บาท")
+                cat_metrics[2].metric(f"หมวด {cat} — ขาด/เกินสุทธิ", f"{c_net_total:,.2f} บาท")
+
+            st.divider()
+
+            # --- 3. สรุปยอดรวมต้นทุนภาพรวมทุกหมวดไว้ล่างสุดของหน้าจอ ---
+            st.write("##### 🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)")
+            shortage_cost_signed_total = float(cost_result_df["Shortage cost"].sum())
+            shortage_cost_total = abs(shortage_cost_signed_total)
+            overage_cost_total = float(cost_result_df["Overage cost"].sum())
+            net_cost_total = overage_cost_total + shortage_cost_signed_total
+
+            cost_metric_columns = st.columns(3)
+            cost_metric_columns[0].metric(
+                "ต้นทุนสินค้าขาดรวมทุกหมวด", f"{shortage_cost_total:,.2f} บาท"
+            )
+            cost_metric_columns[1].metric(
+                "ต้นทุนสินค้าเกินรวมทุกหมวด", f"{overage_cost_total:,.2f} บาท"
+            )
+            cost_metric_columns[2].metric(
+                "สรุปต้นทุนขาด/เกินสุทธิรวมทุกหมวด", f"{net_cost_total:,.2f} บาท"
             )
 else:
     st.info("ใส่ยอดนับจริงอย่างน้อย 1 รายการ เพื่อดูผลต่างและดาวน์โหลดรายงาน")
