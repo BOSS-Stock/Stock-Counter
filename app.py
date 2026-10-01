@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS ตกแต่งหัวข้อ และสไตล์ตารางให้เข้ม คมชัด
+# Custom CSS ตกแต่งหัวข้อ แถบหมวดหมู่ และสไตล์ตาราง
 st.markdown("""
     <style>
     /* ปรับแต่งหัวข้อหลัก */
@@ -38,7 +38,7 @@ st.markdown("""
         align-items: center;
     }
 
-    /* บังคับตกแต่งหัวคอลัมน์ของ Streamlit Data Editor ให้เข้มชัดเจน */
+    /* บังคับตกแต่งหัวคอลัมน์ของ Streamlit Data Editor / Dataframe ให้เข้มชัดเจน */
     [data-testid="stDataEditor"] th,
     [data-testid="stDataFrame"] th,
     div[role="columnheader"],
@@ -634,11 +634,9 @@ categories = list(raw_input_df["Category"].unique())
 tab_titles = ["ภาพรวม (รวมทุกหมวด)"] + [f"📦 {cat}" for cat in categories]
 tabs = st.tabs(tab_titles)
 
-# หน้ารวมทุกหมวด
+# หน้ารวมทุกหมวด (Data Editor)
 with tabs[0]:
     all_edited_dfs = []
-    
-    # วนลูปแยกแสดงผลตามหมวดสินค้า มีแถบแบนเนอร์ผสานยาวเต็มหน้าจอ
     for cat in categories:
         st.markdown(f'<div class="cat-banner">📦 หมวดสินค้า: {cat.upper()}</div>', unsafe_allow_html=True)
         
@@ -665,7 +663,6 @@ with tabs[0]:
         )
         all_edited_dfs.append(edited_cat_df)
     
-    # รวมข้อมูลจากทุกตารางเข้าด้วยกันเพื่อนำไปคำนวณสรุปผล
     edited_df = pd.concat(all_edited_dfs, ignore_index=True)
 
 # หน้าแท็บรายหมวด
@@ -717,20 +714,28 @@ if actual_entered.any():
     elif filter_choice == "ยังไม่ได้นับ":
         filtered = filtered[~actual_entered]
 
-    st.dataframe(
-        filtered.style.map(status_cell_style, subset=["Status"]),
-        hide_index=True,
-        use_container_width=True,
-        column_config={
-            "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
-            "Category": st.column_config.TextColumn("หมวดสินค้า"),
-            "Product": st.column_config.TextColumn("สินค้า"),
-            "System qty": st.column_config.NumberColumn("ในระบบ"),
-            "Actual qty": st.column_config.NumberColumn("นับจริง", format="%.2f"),
-            "Diff": st.column_config.NumberColumn("Diff", format="%.2f"),
-            "Status": st.column_config.TextColumn("สถานะ"),
-        },
-    )
+    # แสดงผลตารางผลต่างสต็อกแบบแยกหมวดหมู่พร้อมแบนเนอร์ผสานยาว
+    diff_categories = list(filtered["Category"].unique())
+    for cat in diff_categories:
+        st.markdown(f'<div class="cat-banner">📊 ผลต่างสต็อก — หมวด: {cat.upper()}</div>', unsafe_allow_html=True)
+        
+        cat_filtered = filtered[filtered["Category"] == cat].copy()
+        cat_filtered["ลำดับ"] = range(1, len(cat_filtered) + 1)
+        
+        st.dataframe(
+            cat_filtered.style.map(status_cell_style, subset=["Status"]),
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
+                "Category": st.column_config.TextColumn("หมวดสินค้า"),
+                "Product": st.column_config.TextColumn("สินค้า"),
+                "System qty": st.column_config.NumberColumn("ในระบบ"),
+                "Actual qty": st.column_config.NumberColumn("นับจริง", format="%.2f"),
+                "Diff": st.column_config.NumberColumn("Diff", format="%.2f"),
+                "Status": st.column_config.TextColumn("สถานะ"),
+            },
+        )
 
     export_df = result_df.copy()
     export_df["Actual qty"] = export_df["Actual qty"].fillna("")
@@ -753,49 +758,76 @@ if actual_entered.any():
                 "หรือรายการที่ตรงกันยังไม่ได้กรอกยอดนับจริง"
             )
         else:
-            shortage_cost_signed_total = float(cost_result_df["Shortage cost"].sum())
-            shortage_cost_total = abs(shortage_cost_signed_total)
-            overage_cost_total = float(cost_result_df["Overage cost"].sum())
             st.caption(
                 f"จับคู่ชื่อสินค้าได้ {len(cost_result_df)} รายการ "
                 f"จากไฟล์ต้นทุน {len(cost_rows)} รายการ"
             )
-            cost_metric_columns = st.columns(2)
+            
+            # --- 1. สรุปมูลค่าต้นทุนแยกตามหมวดสินค้า ---
+            st.write("##### 📌 สรุปยอดต้นทุนแยกตามหมวดสินค้า")
+            cost_cats = list(cost_result_df["Category"].unique())
+            
+            for cat in cost_cats:
+                cat_cost_df = cost_result_df[cost_result_df["Category"] == cat]
+                c_short_signed = float(cat_cost_df["Shortage cost"].sum())
+                c_short_total = abs(c_short_signed)
+                c_over_total = float(cat_cost_df["Overage cost"].sum())
+                c_net_total = c_over_total + c_short_signed
+                
+                with st.expander(f"📦 หมวด {cat.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท", expanded=True):
+                    cat_metrics = st.columns(3)
+                    cat_metrics[0].metric(f"หมวด {cat} — ต้นทุนขาด", f"{c_short_total:,.2f} บาท")
+                    cat_metrics[1].metric(f"หมวด {cat} — ต้นทุนเกิน", f"{c_over_total:,.2f} บาท")
+                    cat_metrics[2].metric(f"หมวด {cat} — ขาด/เกินสุทธิ", f"{c_net_total:,.2f} บาท")
+
+            st.divider()
+
+            # --- 2. สรุปยอดรวมต้นทุนภาพรวมทุกหมวด (Grand Total) ---
+            st.write("##### 🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)")
+            shortage_cost_signed_total = float(cost_result_df["Shortage cost"].sum())
+            shortage_cost_total = abs(shortage_cost_signed_total)
+            overage_cost_total = float(cost_result_df["Overage cost"].sum())
+            net_cost_total = overage_cost_total + shortage_cost_signed_total
+
+            cost_metric_columns = st.columns(3)
             cost_metric_columns[0].metric(
-                "ต้นทุนสินค้าขาด (บาท)", f"{shortage_cost_total:,.2f}"
+                "ต้นทุนสินค้าขาดรวมทุกหมวด", f"{shortage_cost_total:,.2f} บาท"
             )
             cost_metric_columns[1].metric(
-                "ต้นทุนสินค้าเกิน (บาท)", f"{overage_cost_total:,.2f}"
+                "ต้นทุนสินค้าเกินรวมทุกหมวด", f"{overage_cost_total:,.2f} บาท"
             )
-            net_cost_total = overage_cost_total + shortage_cost_signed_total
-            st.metric(
-                "สรุปต้นทุนขาด/เกินสุทธิ (บาท)", f"{net_cost_total:,.2f}"
+            cost_metric_columns[2].metric(
+                "สรุปต้นทุนขาด/เกินสุทธิรวมทุกหมวด", f"{net_cost_total:,.2f} บาท"
             )
-            st.dataframe(
-                cost_result_df.style.map(status_cell_style, subset=["Status"]),
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
-                    "Category": st.column_config.TextColumn("หมวดสินค้า"),
-                    "Product": st.column_config.TextColumn("สินค้า"),
-                    "System qty": st.column_config.NumberColumn("ในระบบ"),
-                    "Actual qty": st.column_config.NumberColumn(
-                        "นับจริง", format="%.2f"
-                    ),
-                    "Diff": st.column_config.NumberColumn("Diff", format="%.2f"),
-                    "Status": st.column_config.TextColumn("สถานะ"),
-                    "Cost": st.column_config.NumberColumn(
-                        "Cost ต่อหน่วย (บาท)", format="%.2f"
-                    ),
-                    "Shortage cost": st.column_config.NumberColumn(
-                        "ต้นทุนขาด (บาท)", format="%.2f"
-                    ),
-                    "Overage cost": st.column_config.NumberColumn(
-                        "ต้นทุนเกิน (บาท)", format="%.2f"
-                    ),
-                },
-            )
+
+            st.divider()
+
+            # --- 3. แสดงตารางรายละเอียดต้นทุนแบบแยกหมวดหมู่ ---
+            st.write("##### 📋 รายละเอียดตารางต้นทุนแยกตามหมวดสินค้า")
+            for cat in cost_cats:
+                st.markdown(f'<div class="cat-banner">💰 รายละเอียดต้นทุน — หมวด: {cat.upper()}</div>', unsafe_allow_html=True)
+                
+                cat_cost_df = cost_result_df[cost_result_df["Category"] == cat].copy()
+                cat_cost_df["ลำดับ"] = range(1, len(cat_cost_df) + 1)
+                
+                st.dataframe(
+                    cat_cost_df.style.map(status_cell_style, subset=["Status"]),
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
+                        "Category": st.column_config.TextColumn("หมวดสินค้า"),
+                        "Product": st.column_config.TextColumn("สินค้า"),
+                        "System qty": st.column_config.NumberColumn("ในระบบ"),
+                        "Actual qty": st.column_config.NumberColumn("นับจริง", format="%.2f"),
+                        "Diff": st.column_config.NumberColumn("Diff", format="%.2f"),
+                        "Status": st.column_config.TextColumn("สถานะ"),
+                        "Cost": st.column_config.NumberColumn("Cost ต่อหน่วย (บาท)", format="%.2f"),
+                        "Shortage cost": st.column_config.NumberColumn("ต้นทุนขาด (บาท)", format="%.2f"),
+                        "Overage cost": st.column_config.NumberColumn("ต้นทุนเกิน (บาท)", format="%.2f"),
+                    },
+                )
+
             cost_csv_bytes = cost_result_df.to_csv(index=False).encode("utf-8-sig")
             st.download_button(
                 "ดาวน์โหลดผลต้นทุน CSV",
