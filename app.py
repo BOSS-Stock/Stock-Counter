@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS ตกแต่งหัวตารางแบบดำสนิทและมีพื้นหลังชัดเจน
+# Custom CSS ตกแต่งหัวข้อ และสไตล์ตารางให้เข้ม คมชัด
 st.markdown("""
     <style>
     /* ปรับแต่งหัวข้อหลัก */
@@ -24,25 +24,30 @@ st.markdown("""
         font-weight: 900 !important;
     }
     
-    /* บังคับตกแต่งหัวคอลัมน์ของ Streamlit Data Editor / Dataframe ทั้งหมด */
+    /* สไตล์สำหรับแถบแบ่งหมวดสินค้าแบบผสานเต็มแถว */
+    .cat-banner {
+        background-color: #1E293B;
+        color: #FFFFFF;
+        padding: 8px 16px;
+        font-size: 1.1rem;
+        font-weight: bold;
+        border-radius: 6px;
+        margin-top: 18px;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+    }
+
+    /* บังคับตกแต่งหัวคอลัมน์ของ Streamlit Data Editor ให้เข้มชัดเจน */
     [data-testid="stDataEditor"] th,
     [data-testid="stDataFrame"] th,
     div[role="columnheader"],
     div[role="columnheader"] span,
-    div[role="columnheader"] div,
-    .st-data-grid-header-cell,
-    .stGridHeaderCell {
+    div[role="columnheader"] div {
         background-color: #E2E8F0 !important;
         color: #000000 !important;
         font-weight: 900 !important;
-        font-size: 1.1rem !important;
-        -webkit-text-stroke: 0.4px #000000 !important;
-    }
-
-    .gdg-header-cell,
-    [class*="header"] {
-        color: #000000 !important;
-        font-weight: 900 !important;
+        font-size: 1.05rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -435,35 +440,8 @@ def parse_pdf_costs(file_bytes: bytes) -> list[dict[str, Any]]:
     return combined_rows
 
 
-def prepare_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    display_rows = []
-    grouped = df.groupby("Category", sort=False)
-    
-    for cat_name, group in grouped:
-        # เคลียร์คอลัมน์หมวดสินค้าฝั่งซ้าย ป้องกันข้อความซ้ำซ้อน
-        display_rows.append({
-            "ลำดับ": "",
-            "Category": "",
-            "Product": f"━━━━━━ 📦 หมวดสินค้า: {cat_name.upper()} ━━━━━━",
-            "System qty": None,
-            "Actual qty": "",
-            "is_header": True
-        })
-        
-        for idx, (_, row) in enumerate(group.iterrows(), start=1):
-            row_dict = row.to_dict()
-            row_dict["ลำดับ"] = str(idx)
-            row_dict["is_header"] = False
-            display_rows.append(row_dict)
-            
-    res_df = pd.DataFrame(display_rows)
-    return res_df
-
-
 def make_result_table(edited: pd.DataFrame) -> pd.DataFrame:
-    result = edited[edited.get("is_header", False) == False].copy()
-    result = result.drop(columns=["is_header"], errors="ignore")
-    
+    result = edited.copy()
     result["System qty"] = pd.to_numeric(result["System qty"], errors="coerce").fillna(0)
     result["Actual qty"] = pd.to_numeric(result["Actual qty"], errors="coerce")
     result["Diff"] = result["Actual qty"].fillna(0) - result["System qty"]
@@ -649,8 +627,6 @@ raw_input_df["Actual qty"] = raw_input_df["Actual qty"].astype(object).where(
     raw_input_df["Actual qty"].notna(), ""
 )
 
-input_df = prepare_display_dataframe(raw_input_df)
-
 st.subheader("กรอกยอดนับจริง")
 st.caption("แก้ไขเฉพาะคอลัมน์ “นับจริงหน้าร้าน” จากนั้นดูผลสรุปด้านล่าง")
 
@@ -658,27 +634,41 @@ categories = list(raw_input_df["Category"].unique())
 tab_titles = ["ภาพรวม (รวมทุกหมวด)"] + [f"📦 {cat}" for cat in categories]
 tabs = st.tabs(tab_titles)
 
+# หน้ารวมทุกหมวด
 with tabs[0]:
-    edited_df = st.data_editor(
-        input_df,
-        hide_index=True,
-        use_container_width=True,
-        num_rows="dynamic",
-        column_config={
-            "ลำดับ": st.column_config.TextColumn("ลำดับ", disabled=True),
-            "Category": st.column_config.TextColumn("หมวดสินค้า", disabled=True),
-            "Product": st.column_config.TextColumn("สินค้า", disabled=True),
-            "System qty": st.column_config.NumberColumn("ในระบบ", disabled=True),
-            "Actual qty": st.column_config.TextColumn(
-                "นับจริงหน้าร้าน",
-                validate=r"^\s*\d*(?:\.\d+)?\s*$",
-                help="ใส่จำนวนที่นับได้จริงเป็นตัวเลข",
-            ),
-            "is_header": None,
-        },
-        key="inventory_editor_all",
-    )
+    all_edited_dfs = []
+    
+    # วนลูปแยกแสดงผลตามหมวดสินค้า มีแถบแบนเนอร์ผสานยาวเต็มหน้าจอ
+    for cat in categories:
+        st.markdown(f'<div class="cat-banner">📦 หมวดสินค้า: {cat.upper()}</div>', unsafe_allow_html=True)
+        
+        cat_df = raw_input_df[raw_input_df["Category"] == cat].copy()
+        cat_df.insert(0, "ลำดับ", range(1, len(cat_df) + 1))
+        
+        edited_cat_df = st.data_editor(
+            cat_df,
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f", disabled=True),
+                "Category": st.column_config.TextColumn("หมวดสินค้า", disabled=True),
+                "Product": st.column_config.TextColumn("สินค้า", disabled=True),
+                "System qty": st.column_config.NumberColumn("ในระบบ", disabled=True),
+                "Actual qty": st.column_config.TextColumn(
+                    "นับจริงหน้าร้าน",
+                    validate=r"^\s*\d*(?:\.\d+)?\s*$",
+                    help="ใส่จำนวนที่นับได้จริงเป็นตัวเลข",
+                ),
+            },
+            key=f"inventory_editor_cat_{cat}",
+        )
+        all_edited_dfs.append(edited_cat_df)
+    
+    # รวมข้อมูลจากทุกตารางเข้าด้วยกันเพื่อนำไปคำนวณสรุปผล
+    edited_df = pd.concat(all_edited_dfs, ignore_index=True)
 
+# หน้าแท็บรายหมวด
 for i, cat in enumerate(categories):
     with tabs[i + 1]:
         cat_df = raw_input_df[raw_input_df["Category"] == cat].copy()
