@@ -524,7 +524,7 @@ def make_cost_result_table(
     return matched[[c for c in cols if c in matched.columns]]
 
 
-def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame) -> bytes:
+def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame, monthly_sales: float = 0.0) -> bytes:
     """สร้างไฟล์ Excel (.xlsx) ที่จัดรูปแบบแบ่งหมวดและมีตารางสรุปเหมือนในแอป"""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -591,12 +591,14 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
             tot_short = abs(float(cost_result_df["Shortage cost"].sum()))
             tot_over = float(cost_result_df["Overage cost"].sum())
             tot_net = tot_over - tot_short
+            
+            pct_sales_str = f" ({tot_net / monthly_sales * 100:.2f}% ของยอดขาย)" if monthly_sales > 0 else ""
 
             formatted_cost_rows.append({
                 "Category": "ภาพรวมทุกหมวด",
                 "Product": "รวมสุทธิทั้งสิ้น",
                 "Cost Diff": tot_net,
-                "Status": f"ยอดสุทธิรวม: {tot_net:,.2f} บาท"
+                "Status": f"ยอดสุทธิรวม: {tot_net:,.2f} บาท{pct_sales_str}"
             })
 
             sheet2_df = pd.DataFrame(formatted_cost_rows)
@@ -694,6 +696,19 @@ with st.sidebar:
                 st.success(f"พบ Cost {len(parsed_cost_rows)} รายการ")
             elif not st.session_state.get("cost_source_label"):
                 st.warning("ไม่พบรายการ Cost จากไฟล์ PDF")
+
+    st.divider()
+
+    # --- ส่วนที่ 1: ช่องกรอกยอดขายของเดือนที่ทำข้อมูล ---
+    st.subheader("ยอดขายประจำเดือน")
+    monthly_sales = st.number_input(
+        "ระบุยอดขายประจำเดือน (บาท)",
+        min_value=0.0,
+        value=0.0,
+        step=1000.0,
+        format="%.2f",
+        help="กรอกยอดขายรวมของเดือนนี้เพื่อคำนวณ % Cost Diff สุทธิเทียบกับยอดขาย",
+    )
 
     if st.button("เริ่มจากตัวอย่าง", use_container_width=True):
         st.session_state.pop("uploaded_files_key", None)
@@ -840,7 +855,7 @@ if actual_entered.any():
     cost_rows = st.session_state.get("cost_rows", [])
     cost_result_df = make_cost_result_table(result_df, cost_rows) if cost_rows else pd.DataFrame()
 
-    excel_bytes = generate_excel_report(result_df, cost_result_df)
+    excel_bytes = generate_excel_report(result_df, cost_result_df, monthly_sales)
     
     col_dl1, col_dl2 = st.columns([1, 1])
     with col_dl1:
@@ -946,7 +961,7 @@ if actual_entered.any():
             )
 
             st.write("")
-            # กรอบสี่เหลี่ยมเน้นสรุปผลไฟนอลรวมทุกหมวด โดยปรับหัวข้อด้านในกรอบให้เป็นตัวหนา คมชัดแบบสไตล์หัวข้อภาพรวม
+            # --- ส่วนที่ 2: กรอบสี่เหลี่ยมสรุปไฟนอล + คำนวณ % Cost Diff เทียบยอดขาย ---
             with st.container(border=True):
                 st.markdown(
                     '<h3 style="margin: 0 0 8px 0; font-size: 1.1rem; font-weight: 900; color: #000000;">'
@@ -954,12 +969,23 @@ if actual_entered.any():
                     '</h3>',
                     unsafe_allow_html=True
                 )
+                
+                # คำนวณเปอร์เซ็นต์เทียบยอดขาย
+                if monthly_sales > 0:
+                    pct_diff = (net_cost_total / monthly_sales) * 100
+                    sales_display = f"คิดเป็น <b style='color: #0F172A;'>{pct_diff:.2f}%</b> ของยอดขาย ({monthly_sales:,.2f} บาท)"
+                else:
+                    sales_display = "<span style='color: #64748B;'>(ยังไม่ได้ระบุยอดขายประจำเดือนที่แถบด้านซ้าย)</span>"
+
                 st.markdown(
                     f"""
                     <div style="background-color: #F8FAFC; padding: 12px 16px; border-radius: 8px; border: 1px solid #E2E8F0;">
-                        <h2 style="margin: 0; color: #0F172A; font-weight: normal;">
+                        <h2 style="margin: 0; color: #0F172A; font-weight: normal; display: inline-block;">
                             {net_cost_total:,.2f} บาท
                         </h2>
+                        <div style="margin-top: 6px; font-size: 0.95rem; color: #334155;">
+                            {sales_display}
+                        </div>
                     </div>
                     """,
                     unsafe_allow_html=True
