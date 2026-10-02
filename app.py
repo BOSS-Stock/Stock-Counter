@@ -699,7 +699,7 @@ with st.sidebar:
 
     st.divider()
 
-    # --- ส่วนที่ 1: ช่องกรอกยอดขายของเดือนที่ทำข้อมูล ---
+    # --- ช่องกรอกยอดขายของเดือนที่ทำข้อมูล ---
     st.subheader("ยอดขายประจำเดือน")
     monthly_sales = st.number_input(
         "ระบุยอดขายประจำเดือน (บาท)",
@@ -961,34 +961,53 @@ if actual_entered.any():
             )
 
             st.write("")
-            # --- ส่วนที่ 2: กรอบสี่เหลี่ยมสรุปไฟนอล + คำนวณ % Cost Diff เทียบยอดขาย ---
-            with st.container(border=True):
-                st.markdown(
-                    '<h3 style="margin: 0 0 8px 0; font-size: 1.1rem; font-weight: 900; color: #000000;">'
-                    'สรุป Cost ขาด/เกินสุทธิรวมทุกหมวด'
-                    '</h3>',
-                    unsafe_allow_html=True
-                )
-                
-                # คำนวณเปอร์เซ็นต์เทียบยอดขาย
-                if monthly_sales > 0:
-                    pct_diff = (net_cost_total / monthly_sales) * 100
-                    sales_display = f"คิดเป็น <b style='color: #0F172A;'>{pct_diff:.2f}%</b> ของยอดขาย ({monthly_sales:,.2f} บาท)"
-                else:
-                    sales_display = "<span style='color: #64748B;'>(ยังไม่ได้ระบุยอดขายประจำเดือนที่แถบด้านซ้าย)</span>"
-
-                st.markdown(
-                    f"""
-                    <div style="background-color: #F8FAFC; padding: 12px 16px; border-radius: 8px; border: 1px solid #E2E8F0;">
-                        <h2 style="margin: 0; color: #0F172A; font-weight: normal; display: inline-block;">
-                            {net_cost_total:,.2f} บาท
-                        </h2>
-                        <div style="margin-top: 6px; font-size: 0.95rem; color: #334155;">
-                            {sales_display}
-                        </div>
+            # --- มินิมอลดีไซน์การ์ดสรุปไฟนอล (Minimal Single Card with Left Accent) ---
+            if monthly_sales > 0:
+                pct_diff = (net_cost_total / monthly_sales) * 100
+                badge_bg = "#FEE2E2" if pct_diff < 0 else "#DCFCE7"
+                badge_color = "#991B1B" if pct_diff < 0 else "#166534"
+                sales_badge_html = f"""
+                    <span style="
+                        background-color: {badge_bg}; 
+                        color: {badge_color}; 
+                        padding: 4px 12px; 
+                        border-radius: 20px; 
+                        font-weight: 700; 
+                        font-size: 0.88rem;
+                        display: inline-block;
+                        margin-top: 6px;
+                    ">
+                        คิดเป็น {pct_diff:.2f}% ของยอดขาย ({monthly_sales:,.2f} บาท)
+                    </span>
+                """
+            else:
+                sales_badge_html = """
+                    <div style="margin-top: 6px; font-size: 0.85rem; color: #64748B;">
+                        (ระบุยอดขายประจำเดือนที่แถบด้านซ้าย เพื่อดู % เทียบยอดขาย)
                     </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                """
+
+            st.markdown(
+                f"""
+                <div style="
+                    background-color: #F8FAFC; 
+                    border: 1px solid #E2E8F0; 
+                    border-left: 5px solid #0F172A; 
+                    border-radius: 12px; 
+                    padding: 16px 20px; 
+                    margin-top: 8px;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                ">
+                    <div style="font-size: 1.05rem; font-weight: 800; color: #000000; margin-bottom: 4px;">
+                        สรุป Cost ขาด/เกินสุทธิรวมทุกหมวด
+                    </div>
+                    <div style="font-size: 1.8rem; font-weight: normal; color: #0F172A; line-height: 1.2;">
+                        {net_cost_total:,.2f} <span style="font-size: 1.1rem;">บาท</span>
+                    </div>
+                    {sales_badge_html}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 else:
     st.info("ใส่ยอดนับจริงอย่างน้อย 1 รายการ เพื่อดูผลต่างและดาวน์โหลดรายงาน")
