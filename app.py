@@ -548,7 +548,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
             cost_cats = list(cost_result_df["Category"].unique())
             formatted_cost_rows = []
             
-            # Columns to export
+            # Export Columns เฉพาะที่ใช้งาน
             export_cols = ["ลำดับ", "Category", "Product", "System qty", "Actual qty", "Diff", "Status", "Cost", "Cost Diff"]
             
             # 1. รายละเอียดตารางต้นทุนแยกตามหมวด
@@ -913,8 +913,8 @@ if actual_entered.any():
             
             for cat in cost_cats:
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat]
-                c_short_signed = float(cat_cost_df["Shortage cost"].sum())
-                c_short_total = abs(c_short_signed)
+                c_short_signed = float(cat_cost_df["Shortage cost"].sum()) # ยอดติดลบ
+                c_short_display = -abs(c_short_signed) if c_short_signed != 0 else 0.0
                 c_over_total = float(cat_cost_df["Overage cost"].sum())
                 c_net_total = c_over_total + c_short_signed
                 
@@ -922,28 +922,43 @@ if actual_entered.any():
                 st.markdown(f'<div class="cat-summary-header">📦 หมวด {cat.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท</div>', unsafe_allow_html=True)
                 
                 cat_metrics = st.columns(3)
-                cat_metrics[0].metric(f"หมวด {cat} — ต้นทุนขาด", f"{c_short_total:,.2f} บาท")
+                # ปรับให้ต้นทุนขาดแสดงผลเป็นติดลบ (-)
+                cat_metrics[0].metric(f"หมวด {cat} — ต้นทุนขาด", f"{c_short_display:,.2f} บาท")
                 cat_metrics[1].metric(f"หมวด {cat} — ต้นทุนเกิน", f"{c_over_total:,.2f} บาท")
                 cat_metrics[2].metric(f"หมวด {cat} — ขาด/เกินสุทธิ", f"{c_net_total:,.2f} บาท")
 
             st.divider()
 
-            # --- 3. สรุปยอดรวมต้นทุนภาพรวมทุกหมวดไว้ล่างสุดของหน้าจอ ---
+            # --- 3. สรุปยอดรวมต้นทุนภาพรวมทุกหมวดไว้ล่างสุดของหน้าจอ (มีกรอบสี่เหลี่ยมรอบสรุปไฟนอล) ---
             st.write("##### 🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)")
             shortage_cost_signed_total = float(cost_result_df["Shortage cost"].sum())
-            shortage_cost_total = abs(shortage_cost_signed_total)
+            shortage_cost_display_total = -abs(shortage_cost_signed_total) if shortage_cost_signed_total != 0 else 0.0
             overage_cost_total = float(cost_result_df["Overage cost"].sum())
             net_cost_total = overage_cost_total + shortage_cost_signed_total
 
-            cost_metric_columns = st.columns(3)
+            cost_metric_columns = st.columns(2)
+            # ปรับให้ต้นทุนขาดรวมแสดงเป็นติดลบ (-)
             cost_metric_columns[0].metric(
-                "ต้นทุนสินค้าขาดรวมทุกหมวด", f"{shortage_cost_total:,.2f} บาท"
+                "ต้นทุนสินค้าขาดรวมทุกหมวด", f"{shortage_cost_display_total:,.2f} บาท"
             )
             cost_metric_columns[1].metric(
                 "ต้นทุนสินค้าเกินรวมทุกหมวด", f"{overage_cost_total:,.2f} บาท"
             )
-            cost_metric_columns[2].metric(
-                "สรุปต้นทุนขาด/เกินสุทธิรวมทุกหมวด", f"{net_cost_total:,.2f} บาท"
-            )
+
+            st.write("")
+            # กรอบสี่เหลี่ยมเน้นสรุปผลไฟนอลรวมทุกหมวด
+            with st.container(border=True):
+                net_color = "#FF4B4B" if net_cost_total < 0 else ("#28A745" if net_cost_total > 0 else "#000000")
+                st.caption("สรุปต้นทุนขาด/เกินสุทธิรวมทุกหมวด")
+                st.markdown(
+                    f"""
+                    <div style="background-color: rgba(255, 75, 75, 0.05); padding: 12px; border-radius: 8px;">
+                        <h2 style="margin: 0; color: {net_color}; font-weight: 900;">
+                            {net_cost_total:,.2f} บาท
+                        </h2>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 else:
     st.info("ใส่ยอดนับจริงอย่างน้อย 1 รายการ เพื่อดูผลต่างและดาวน์โหลดรายงาน")
