@@ -477,6 +477,7 @@ def make_cost_result_table(
                 "Diff",
                 "Status",
                 "Cost",
+                "Cost Diff",
                 "Shortage cost",
                 "Overage cost",
             ]
@@ -498,11 +499,13 @@ def make_cost_result_table(
                 "Diff",
                 "Status",
                 "Cost",
+                "Cost Diff",
                 "Shortage cost",
                 "Overage cost",
             ]
         )
 
+    matched["Cost Diff"] = matched["Diff"] * matched["Cost"]
     matched["Shortage cost"] = matched["Diff"].clip(upper=0) * matched["Cost"]
     matched["Overage cost"] = matched["Diff"].clip(lower=0) * matched["Cost"]
     cols = [
@@ -514,6 +517,7 @@ def make_cost_result_table(
         "Diff",
         "Status",
         "Cost",
+        "Cost Diff",
         "Shortage cost",
         "Overage cost",
     ]
@@ -544,21 +548,24 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
             cost_cats = list(cost_result_df["Category"].unique())
             formatted_cost_rows = []
             
+            # Columns to export
+            export_cols = ["ลำดับ", "Category", "Product", "System qty", "Actual qty", "Diff", "Status", "Cost", "Cost Diff"]
+            
             # 1. รายละเอียดตารางต้นทุนแยกตามหมวด
             for cat in cost_cats:
-                cat_c_df = cost_result_df[cost_result_df["Category"] == cat].copy()
+                cat_c_df = cost_result_df[cost_result_df["Category"] == cat][export_cols].copy()
                 cat_c_df["ลำดับ"] = range(1, len(cat_c_df) + 1)
                 
-                banner_row = {col: "" for col in cat_c_df.columns}
+                banner_row = {col: "" for col in export_cols}
                 banner_row["Product"] = f"💰 รายละเอียดต้นทุน — หมวด: {cat.upper()}"
                 formatted_cost_rows.append(banner_row)
                 formatted_cost_rows.extend(cat_c_df.to_dict("records"))
 
             # 2. แถวว่างคั่น
-            formatted_cost_rows.append({col: "" for col in cost_result_df.columns})
+            formatted_cost_rows.append({col: "" for col in export_cols})
             
             # 3. สรุปต้นทุนแยกรายหมวดสินค้า
-            summary_banner = {col: "" for col in cost_result_df.columns}
+            summary_banner = {col: "" for col in export_cols}
             summary_banner["Product"] = "📌 สรุปยอดต้นทุนแยกตามหมวดสินค้า"
             formatted_cost_rows.append(summary_banner)
             
@@ -571,14 +578,13 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
                 formatted_cost_rows.append({
                     "Category": cat,
                     "Product": f"สรุปหมวด {cat}",
-                    "Shortage cost": -c_short,
-                    "Overage cost": c_over,
+                    "Cost Diff": c_net,
                     "Status": f"สุทธิ: {c_net:,.2f} บาท"
                 })
 
             # 4. สรุปรวมภาพรวมล่างสุด (Grand Total)
-            formatted_cost_rows.append({col: "" for col in cost_result_df.columns})
-            grand_banner = {col: "" for col in cost_result_df.columns}
+            formatted_cost_rows.append({col: "" for col in export_cols})
+            grand_banner = {col: "" for col in export_cols}
             grand_banner["Product"] = "🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)"
             formatted_cost_rows.append(grand_banner)
 
@@ -589,8 +595,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
             formatted_cost_rows.append({
                 "Category": "ภาพรวมทุกหมวด",
                 "Product": "รวมสุทธิทั้งสิ้น",
-                "Shortage cost": -tot_short,
-                "Overage cost": tot_over,
+                "Cost Diff": tot_net,
                 "Status": f"ยอดสุทธิรวม: {tot_net:,.2f} บาท"
             })
 
@@ -892,8 +897,7 @@ if actual_entered.any():
                         "Diff": st.column_config.NumberColumn("Diff", format="%.2f"),
                         "Status": st.column_config.TextColumn("สถานะ"),
                         "Cost": st.column_config.NumberColumn("Cost ต่อหน่วย (บาท)", format="%.2f"),
-                        "Shortage cost": st.column_config.NumberColumn("ต้นทุนขาด (บาท)", format="%.2f"),
-                        "Overage cost": st.column_config.NumberColumn("ต้นทุนเกิน (บาท)", format="%.2f"),
+                        "Cost Diff": st.column_config.NumberColumn("Cost Diff", format="%.2f"),
                     },
                 )
 
