@@ -929,7 +929,7 @@ if actual_entered.any():
 
             st.divider()
 
-            # --- 3. สรุปยอดรวมต้นทุนภาพรวมทุกหมวดไว้ล่างสุดของหน้าจอ (มีกรอบสี่เหลี่ยมรอบสรุปไฟนอล) ---
+            # --- 3. สรุปยอดรวมต้นทุนภาพรวมทุกหมวดไว้ล่างสุดของหน้าจอ (มีกรอบสี่เหลี่ยมรอบสรุปไฟนอล + พื้นหลังสีเทาอ่อน + ฟอนต์ปกติ) ---
             st.write("##### 🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)")
             shortage_cost_signed_total = float(cost_result_df["Shortage cost"].sum())
             shortage_cost_display_total = -abs(shortage_cost_signed_total) if shortage_cost_signed_total != 0 else 0.0
@@ -946,14 +946,13 @@ if actual_entered.any():
             )
 
             st.write("")
-            # กรอบสี่เหลี่ยมเน้นสรุปผลไฟนอลรวมทุกหมวด
+            # กรอบสี่เหลี่ยมเน้นสรุปผลไฟนอลรวมทุกหมวด (พื้นหลังสีเทาอ่อน #F8FAFC + ฟอนต์ปกติ font-weight: normal)
             with st.container(border=True):
-                net_color = "#FF4B4B" if net_cost_total < 0 else ("#28A745" if net_cost_total > 0 else "#000000")
                 st.caption("สรุปต้นทุนขาด/เกินสุทธิรวมทุกหมวด")
                 st.markdown(
                     f"""
-                    <div style="background-color: rgba(255, 75, 75, 0.05); padding: 12px; border-radius: 8px;">
-                        <h2 style="margin: 0; color: {net_color}; font-weight: 900;">
+                    <div style="background-color: #F8FAFC; padding: 12px 16px; border-radius: 8px; border: 1px solid #E2E8F0;">
+                        <h2 style="margin: 0; color: #0F172A; font-weight: normal;">
                             {net_cost_total:,.2f} บาท
                         </h2>
                     </div>
