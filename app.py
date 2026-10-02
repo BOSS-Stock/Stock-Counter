@@ -961,7 +961,7 @@ if actual_entered.any():
             )
 
             st.write("")
-            # --- มินิมอลดีไซน์การ์ดสรุปไฟนอล (ขยายขนาดฟอนต์ให้ใหญ่ คมชัด และสวยงามลงตัว) ---
+            # --- มินิมอลดีไซน์การ์ดสรุปไฟนอล (ขยายขนาดหัวข้อการ์ดไฟนอลให้ใหญ่ คมชัด และสวยงามลงตัว) ---
             if monthly_sales > 0:
                 pct_diff = (net_cost_total / monthly_sales) * 100
                 badge_bg = "#FEE2E2" if pct_diff < 0 else "#DCFCE7"
@@ -971,7 +971,7 @@ if actual_entered.any():
             else:
                 sales_badge_html = '<div style="margin-top: 8px; font-size: 0.88rem; color: #64748B;">(ระบุยอดขายประจำเดือนที่แถบด้านซ้าย เพื่อดู % เทียบยอดขาย)</div>'
 
-            final_card_html = f'''<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #0F172A; border-radius: 12px; padding: 18px 22px; margin-top: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);"><div style="font-size: 1.1rem; font-weight: 800; color: #000000; margin-bottom: 6px;">สรุป Cost ขาด/เกินสุทธิรวมทุกหมวด</div><div style="font-size: 2.2rem; font-weight: bold; color: #0F172A; line-height: 1.1;">{net_cost_total:,.2f} <span style="font-size: 1.2rem; font-weight: normal;">บาท</span></div>{sales_badge_html}</div>'''
+            final_card_html = f'''<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #0F172A; border-radius: 12px; padding: 18px 22px; margin-top: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);"><div style="font-size: 1.4rem; font-weight: 900; color: #000000; margin-bottom: 8px;">สรุป Cost ขาด/เกินสุทธิรวมทุกหมวด</div><div style="font-size: 2.2rem; font-weight: bold; color: #0F172A; line-height: 1.1;">{net_cost_total:,.2f} <span style="font-size: 1.2rem; font-weight: normal;">บาท</span></div>{sales_badge_html}</div>'''
 
             st.markdown(final_card_html, unsafe_allow_html=True)
 else:
