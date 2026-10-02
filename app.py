@@ -937,10 +937,10 @@ if actual_entered.any():
                 st.markdown(f'<div class="cat-summary-header">📦 หมวด {cat.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท</div>', unsafe_allow_html=True)
                 
                 cat_metrics = st.columns(3)
-                # ปรับให้ Cost ขาดแสดงผลเป็นติดลบ (-)
-                cat_metrics[0].metric(f"หมวด {cat} — Cost ขาด", f"{c_short_display:,.2f} บาท")
-                cat_metrics[1].metric(f"หมวด {cat} — Cost เกิน", f"{c_over_total:,.2f} บาท")
-                cat_metrics[2].metric(f"หมวด {cat} — ขาด/เกินสุทธิ", f"{c_net_total:,.2f} บาท")
+                # ลบคำว่า "หมวด [ชื่อหมวด] — " ออก เหลือเฉพาะชื่อประเภท Metric
+                cat_metrics[0].metric("Cost ขาด", f"{c_short_display:,.2f} บาท")
+                cat_metrics[1].metric("Cost เกิน", f"{c_over_total:,.2f} บาท")
+                cat_metrics[2].metric("ขาด/เกินสุทธิ", f"{c_net_total:,.2f} บาท")
 
             st.divider()
 
@@ -961,7 +961,7 @@ if actual_entered.any():
             )
 
             st.write("")
-            # --- มินิมอลดีไซน์การ์ดสรุปไฟนอล (ขยายขนาดหัวข้อการ์ดไฟนอลให้ใหญ่ คมชัด และสวยงามลงตัว) ---
+            # --- มินิมอลดีไซน์การ์ดสรุปไฟนอล ---
             if monthly_sales > 0:
                 pct_diff = (net_cost_total / monthly_sales) * 100
                 badge_bg = "#FEE2E2" if pct_diff < 0 else "#DCFCE7"
