@@ -520,6 +520,86 @@ def make_cost_result_table(
     return matched[[c for c in cols if c in matched.columns]]
 
 
+def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame) -> bytes:
+    """สร้างไฟล์ Excel (.xlsx) ที่จัดรูปแบบแบ่งหมวดและมีตารางสรุปเหมือนในแอป"""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        # --- ชีตที่ 1: ผลต่างสต็อก ---
+        diff_cats = list(result_df["Category"].unique())
+        formatted_diff_rows = []
+        for cat in diff_cats:
+            cat_df = result_df[result_df["Category"] == cat].copy()
+            cat_df["ลำดับ"] = range(1, len(cat_df) + 1)
+            # แถบแบนเนอร์คั่นหมวด
+            banner_row = {col: "" for col in cat_df.columns}
+            banner_row["Product"] = f"📦 หมวดสินค้า: {cat.upper()}"
+            formatted_diff_rows.append(banner_row)
+            formatted_diff_rows.extend(cat_df.to_dict("records"))
+
+        sheet1_df = pd.DataFrame(formatted_diff_rows)
+        sheet1_df.to_excel(writer, sheet_name="ผลต่างสต็อก", index=False)
+
+        # --- ชีตที่ 2: รายงานต้นทุนและสรุปภาพรวม ---
+        if not cost_result_df.empty:
+            cost_cats = list(cost_result_df["Category"].unique())
+            formatted_cost_rows = []
+            
+            # 1. รายละเอียดตารางต้นทุนแยกตามหมวด
+            for cat in cost_cats:
+                cat_c_df = cost_result_df[cost_result_df["Category"] == cat].copy()
+                cat_c_df["ลำดับ"] = range(1, len(cat_c_df) + 1)
+                
+                banner_row = {col: "" for col in cat_c_df.columns}
+                banner_row["Product"] = f"💰 รายละเอียดต้นทุน — หมวด: {cat.upper()}"
+                formatted_cost_rows.append(banner_row)
+                formatted_cost_rows.extend(cat_c_df.to_dict("records"))
+
+            # 2. แถวว่างคั่น
+            formatted_cost_rows.append({col: "" for col in cost_result_df.columns})
+            
+            # 3. สรุปต้นทุนแยกรายหมวดสินค้า
+            summary_banner = {col: "" for col in cost_result_df.columns}
+            summary_banner["Product"] = "📌 สรุปยอดต้นทุนแยกตามหมวดสินค้า"
+            formatted_cost_rows.append(summary_banner)
+            
+            for cat in cost_cats:
+                cat_c_df = cost_result_df[cost_result_df["Category"] == cat]
+                c_short = abs(float(cat_c_df["Shortage cost"].sum()))
+                c_over = float(cat_c_df["Overage cost"].sum())
+                c_net = c_over - c_short
+                
+                formatted_cost_rows.append({
+                    "Category": cat,
+                    "Product": f"สรุปหมวด {cat}",
+                    "Shortage cost": -c_short,
+                    "Overage cost": c_over,
+                    "Status": f"สุทธิ: {c_net:,.2f} บาท"
+                })
+
+            # 4. สรุปรวมภาพรวมล่างสุด (Grand Total)
+            formatted_cost_rows.append({col: "" for col in cost_result_df.columns})
+            grand_banner = {col: "" for col in cost_result_df.columns}
+            grand_banner["Product"] = "🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)"
+            formatted_cost_rows.append(grand_banner)
+
+            tot_short = abs(float(cost_result_df["Shortage cost"].sum()))
+            tot_over = float(cost_result_df["Overage cost"].sum())
+            tot_net = tot_over - tot_short
+
+            formatted_cost_rows.append({
+                "Category": "ภาพรวมทุกหมวด",
+                "Product": "รวมสุทธิทั้งสิ้น",
+                "Shortage cost": -tot_short,
+                "Overage cost": tot_over,
+                "Status": f"ยอดสุทธิรวม: {tot_net:,.2f} บาท"
+            })
+
+            sheet2_df = pd.DataFrame(formatted_cost_rows)
+            sheet2_df.to_excel(writer, sheet_name="รายงานสรุปต้นทุน", index=False)
+
+    return output.getvalue()
+
+
 def status_cell_style(status: Any) -> str:
     colors = {
         "ตรงกัน": ("#DCFCE7", "#166534"),
@@ -748,21 +828,37 @@ if actual_entered.any():
             },
         )
 
+    # ปุ่มดาวน์โหลดไฟล์
     export_df = result_df.copy()
     export_df["Actual qty"] = export_df["Actual qty"].fillna("")
-    csv_bytes = export_df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "ดาวน์โหลดผลลัพธ์ CSV",
-        data=csv_bytes,
-        file_name="stock-diff-result.csv",
-        mime="text/csv",
-        type="primary",
-    )
-
+    
     cost_rows = st.session_state.get("cost_rows", [])
+    cost_result_df = make_cost_result_table(result_df, cost_rows) if cost_rows else pd.DataFrame()
+
+    excel_bytes = generate_excel_report(result_df, cost_result_df)
+    
+    col_dl1, col_dl2 = st.columns([1, 1])
+    with col_dl1:
+        st.download_button(
+            "📊 ดาวน์โหลดรายงานแบบไฟล์ Excel (.xlsx)",
+            data=excel_bytes,
+            file_name="stock-diff-report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True,
+        )
+    with col_dl2:
+        csv_bytes = export_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "📄 ดาวน์โหลดผลลัพธ์แบบไฟล์ CSV",
+            data=csv_bytes,
+            file_name="stock-diff-result.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
     if cost_rows:
         st.subheader("ต้นทุนจากผลต่าง")
-        cost_result_df = make_cost_result_table(result_df, cost_rows)
         if cost_result_df.empty:
             st.warning(
                 "ยังไม่พบชื่อสินค้าที่ตรงกันระหว่าง Excel กับ PDF "
@@ -800,14 +896,6 @@ if actual_entered.any():
                         "Overage cost": st.column_config.NumberColumn("ต้นทุนเกิน (บาท)", format="%.2f"),
                     },
                 )
-
-            cost_csv_bytes = cost_result_df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                "ดาวน์โหลดผลต้นทุน CSV",
-                data=cost_csv_bytes,
-                file_name="stock-cost-result.csv",
-                mime="text/csv",
-            )
 
             st.divider()
 
