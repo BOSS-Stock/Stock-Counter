@@ -961,17 +961,17 @@ if actual_entered.any():
             )
 
             st.write("")
-            # --- มินิมอลดีไซน์การ์ดสรุปไฟนอล (แก้ไขปัญหาสตริงหลุดให้อยู่ในบล็อกเดียวกันทั้งหมด) ---
+            # --- มินิมอลดีไซน์การ์ดสรุปไฟนอล (ขยายขนาดฟอนต์ให้ใหญ่ คมชัด และสวยงามลงตัว) ---
             if monthly_sales > 0:
                 pct_diff = (net_cost_total / monthly_sales) * 100
                 badge_bg = "#FEE2E2" if pct_diff < 0 else "#DCFCE7"
                 badge_color = "#991B1B" if pct_diff < 0 else "#166534"
                 badge_content = f"คิดเป็น {pct_diff:.2f}% ของยอดขาย ({monthly_sales:,.2f} บาท)"
-                sales_badge_html = f'<span style="background-color: {badge_bg}; color: {badge_color}; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 0.88rem; display: inline-block; margin-top: 8px;">{badge_content}</span>'
+                sales_badge_html = f'<span style="background-color: {badge_bg}; color: {badge_color}; padding: 5px 14px; border-radius: 20px; font-weight: 800; font-size: 0.92rem; display: inline-block; margin-top: 10px;">{badge_content}</span>'
             else:
-                sales_badge_html = '<div style="margin-top: 6px; font-size: 0.85rem; color: #64748B;">(ระบุยอดขายประจำเดือนที่แถบด้านซ้าย เพื่อดู % เทียบยอดขาย)</div>'
+                sales_badge_html = '<div style="margin-top: 8px; font-size: 0.88rem; color: #64748B;">(ระบุยอดขายประจำเดือนที่แถบด้านซ้าย เพื่อดู % เทียบยอดขาย)</div>'
 
-            final_card_html = f'''<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 5px solid #0F172A; border-radius: 12px; padding: 16px 20px; margin-top: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);"><div style="font-size: 1.05rem; font-weight: 800; color: #000000; margin-bottom: 4px;">สรุป Cost ขาด/เกินสุทธิรวมทุกหมวด</div><div style="font-size: 1.8rem; font-weight: normal; color: #0F172A; line-height: 1.2;">{net_cost_total:,.2f} <span style="font-size: 1.1rem;">บาท</span></div>{sales_badge_html}</div>'''
+            final_card_html = f'''<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #0F172A; border-radius: 12px; padding: 18px 22px; margin-top: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);"><div style="font-size: 1.1rem; font-weight: 800; color: #000000; margin-bottom: 6px;">สรุป Cost ขาด/เกินสุทธิรวมทุกหมวด</div><div style="font-size: 2.2rem; font-weight: bold; color: #0F172A; line-height: 1.1;">{net_cost_total:,.2f} <span style="font-size: 1.2rem; font-weight: normal;">บาท</span></div>{sales_badge_html}</div>'''
 
             st.markdown(final_card_html, unsafe_allow_html=True)
 else:
