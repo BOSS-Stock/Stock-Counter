@@ -876,7 +876,12 @@ if actual_entered.any():
             )
             cost_cats = list(cost_result_df["Category"].unique())
 
-            # --- 1. แสดงตารางรายละเอียดต้นทุนแยกตามหมวดสินค้า ขึ้นมาก่อน ---
+            # --- 1. แสดงตารางรายละเอียดต้นทุนแยกตามหมวดสินค้า (แสดงเฉพาะ Cost Diff) ---
+            display_cost_cols = [
+                "ลำดับ", "Category", "Product", "System qty", 
+                "Actual qty", "Diff", "Status", "Cost", "Cost Diff"
+            ]
+            
             st.write("##### 📋 รายละเอียดตารางต้นทุนแยกตามหมวดสินค้า")
             for cat in cost_cats:
                 st.markdown(f'<div class="cat-banner">💰 รายละเอียดต้นทุน — หมวด: {cat.upper()}</div>', unsafe_allow_html=True)
@@ -885,7 +890,7 @@ if actual_entered.any():
                 cat_cost_df["ลำดับ"] = range(1, len(cat_cost_df) + 1)
                 
                 st.dataframe(
-                    cat_cost_df.style.map(status_cell_style, subset=["Status"]),
+                    cat_cost_df[display_cost_cols].style.map(status_cell_style, subset=["Status"]),
                     hide_index=True,
                     use_container_width=True,
                     column_config={
