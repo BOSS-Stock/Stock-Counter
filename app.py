@@ -445,7 +445,7 @@ def parse_pdf_costs(file_bytes: bytes) -> list[dict[str, Any]]:
     combined_rows = _combine_cost_rows(parsed_rows)
     if not combined_rows:
         raise ValueError(
-            "ไม่พบตารางต้นทุนใน PDF โปรดตรวจว่ามีคอลัมน์ชื่อสินค้าและ Cost/ต้นทุน "
+            "ไม่พบตาราง Cost ใน PDF โปรดตรวจว่ามีคอลัมน์ชื่อสินค้าและ Cost "
             "และไฟล์ไม่ใช่ PDF แบบภาพสแกน"
         )
     return combined_rows
@@ -543,7 +543,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
         sheet1_df = pd.DataFrame(formatted_diff_rows)
         sheet1_df.to_excel(writer, sheet_name="ผลต่างสต็อก", index=False)
 
-        # --- ชีตที่ 2: รายงานต้นทุนและสรุปภาพรวม ---
+        # --- ชีตที่ 2: รายงาน Cost และสรุปภาพรวม ---
         if not cost_result_df.empty:
             cost_cats = list(cost_result_df["Category"].unique())
             formatted_cost_rows = []
@@ -551,22 +551,22 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
             # Export Columns เฉพาะที่ใช้งาน
             export_cols = ["ลำดับ", "Category", "Product", "System qty", "Actual qty", "Diff", "Status", "Cost", "Cost Diff"]
             
-            # 1. รายละเอียดตารางต้นทุนแยกตามหมวด
+            # 1. รายละเอียดตาราง Cost แยกตามหมวด
             for cat in cost_cats:
                 cat_c_df = cost_result_df[cost_result_df["Category"] == cat][export_cols].copy()
                 cat_c_df["ลำดับ"] = range(1, len(cat_c_df) + 1)
                 
                 banner_row = {col: "" for col in export_cols}
-                banner_row["Product"] = f"💰 รายละเอียดต้นทุน — หมวด: {cat.upper()}"
+                banner_row["Product"] = f"💰 รายละเอียด Cost — หมวด: {cat.upper()}"
                 formatted_cost_rows.append(banner_row)
                 formatted_cost_rows.extend(cat_c_df.to_dict("records"))
 
             # 2. แถวว่างคั่น
             formatted_cost_rows.append({col: "" for col in export_cols})
             
-            # 3. สรุปต้นทุนแยกรายหมวดสินค้า
+            # 3. สรุป Cost แยกรายหมวดสินค้า
             summary_banner = {col: "" for col in export_cols}
-            summary_banner["Product"] = "📌 สรุปยอดต้นทุนแยกตามหมวดสินค้า"
+            summary_banner["Product"] = "📌 สรุปยอด Cost แยกตามหมวดสินค้า"
             formatted_cost_rows.append(summary_banner)
             
             for cat in cost_cats:
@@ -585,7 +585,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
             # 4. สรุปรวมภาพรวมล่างสุด (Grand Total)
             formatted_cost_rows.append({col: "" for col in export_cols})
             grand_banner = {col: "" for col in export_cols}
-            grand_banner["Product"] = "🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)"
+            grand_banner["Product"] = "🏆 สรุปยอด Cost รวมทุกหมวดสินค้า (ภาพรวม)"
             formatted_cost_rows.append(grand_banner)
 
             tot_short = abs(float(cost_result_df["Shortage cost"].sum()))
@@ -600,7 +600,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame)
             })
 
             sheet2_df = pd.DataFrame(formatted_cost_rows)
-            sheet2_df.to_excel(writer, sheet_name="รายงานสรุปต้นทุน", index=False)
+            sheet2_df.to_excel(writer, sheet_name="รายงานสรุป Cost", index=False)
 
     return output.getvalue()
 
@@ -670,11 +670,11 @@ with st.sidebar:
                 st.warning("ไม่พบรายการสินค้าจากไฟล์ที่อัปโหลด")
 
     st.divider()
-    st.subheader("ไฟล์ต้นทุนสินค้า")
+    st.subheader("ไฟล์ Cost สินค้า")
     cost_pdf = st.file_uploader(
         "อัปโหลดไฟล์ที่ 2 (PDF เท่านั้น)",
         type=["pdf"],
-        help="PDF ควรมีคอลัมน์ชื่อสินค้าและ Cost/ต้นทุนต่อหน่วย",
+        help="PDF ควรมีคอลัมน์ชื่อสินค้าและ Cost ต่อหน่วย",
     )
     if cost_pdf is not None:
         cost_file_key = f"{cost_pdf.name}:{cost_pdf.size}"
@@ -685,15 +685,15 @@ with st.sidebar:
                 except Exception as error:
                     st.session_state["cost_rows"] = []
                     st.session_state["cost_source_label"] = ""
-                    st.error(f"อ่านไฟล์ต้นทุนไม่สำเร็จ: {error}")
+                    st.error(f"อ่านไฟล์ Cost ไม่สำเร็จ: {error}")
                     parsed_cost_rows = []
             st.session_state["cost_pdf_file_key"] = cost_file_key
             if parsed_cost_rows:
                 st.session_state["cost_rows"] = parsed_cost_rows
                 st.session_state["cost_source_label"] = cost_pdf.name
-                st.success(f"พบต้นทุน {len(parsed_cost_rows)} รายการ")
+                st.success(f"พบ Cost {len(parsed_cost_rows)} รายการ")
             elif not st.session_state.get("cost_source_label"):
-                st.warning("ไม่พบรายการต้นทุนจากไฟล์ PDF")
+                st.warning("ไม่พบรายการ Cost จากไฟล์ PDF")
 
     if st.button("เริ่มจากตัวอย่าง", use_container_width=True):
         st.session_state.pop("uploaded_files_key", None)
@@ -701,7 +701,7 @@ with st.sidebar:
         st.rerun()
 
     if st.session_state.get("cost_source_label"):
-        st.caption(f"ไฟล์ต้นทุน: {st.session_state['cost_source_label']}")
+        st.caption(f"ไฟล์ Cost: {st.session_state['cost_source_label']}")
 
 
 st.title("ระบบนับสต็อก Con BLP")
@@ -863,7 +863,7 @@ if actual_entered.any():
         )
 
     if cost_rows:
-        st.subheader("ต้นทุนจากผลต่าง")
+        st.subheader("Cost จากผลต่าง")
         if cost_result_df.empty:
             st.warning(
                 "ยังไม่พบชื่อสินค้าที่ตรงกันระหว่าง Excel กับ PDF "
@@ -872,19 +872,19 @@ if actual_entered.any():
         else:
             st.caption(
                 f"จับคู่ชื่อสินค้าได้ {len(cost_result_df)} รายการ "
-                f"จากไฟล์ต้นทุน {len(cost_rows)} รายการ"
+                f"จากไฟล์ Cost {len(cost_rows)} รายการ"
             )
             cost_cats = list(cost_result_df["Category"].unique())
 
-            # --- 1. แสดงตารางรายละเอียดต้นทุนแยกตามหมวดสินค้า (แสดงเฉพาะ Cost Diff) ---
+            # --- 1. แสดงตารางรายละเอียด Cost แยกตามหมวดสินค้า ---
             display_cost_cols = [
                 "ลำดับ", "Category", "Product", "System qty", 
                 "Actual qty", "Diff", "Status", "Cost", "Cost Diff"
             ]
             
-            st.write("##### 📋 รายละเอียดตารางต้นทุนแยกตามหมวดสินค้า")
+            st.write("##### 📋 รายละเอียดตาราง Cost แยกตามหมวดสินค้า")
             for cat in cost_cats:
-                st.markdown(f'<div class="cat-banner">💰 รายละเอียดต้นทุน — หมวด: {cat.upper()}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="cat-banner">💰 รายละเอียด Cost — หมวด: {cat.upper()}</div>', unsafe_allow_html=True)
                 
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat].copy()
                 cat_cost_df["ลำดับ"] = range(1, len(cat_cost_df) + 1)
@@ -908,8 +908,8 @@ if actual_entered.any():
 
             st.divider()
 
-            # --- 2. สรุปมูลค่าต้นทุนแยกตามหมวดสินค้า พร้อม Highlight หัวข้อ ---
-            st.write("##### 📌 สรุปยอดต้นทุนแยกตามหมวดสินค้า")
+            # --- 2. สรุปมูลค่า Cost แยกตามหมวดสินค้า พร้อม Highlight หัวข้อ ---
+            st.write("##### 📌 สรุปยอด Cost แยกตามหมวดสินค้า")
             
             for cat in cost_cats:
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat]
@@ -922,33 +922,33 @@ if actual_entered.any():
                 st.markdown(f'<div class="cat-summary-header">📦 หมวด {cat.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท</div>', unsafe_allow_html=True)
                 
                 cat_metrics = st.columns(3)
-                # ปรับให้ต้นทุนขาดแสดงผลเป็นติดลบ (-)
-                cat_metrics[0].metric(f"หมวด {cat} — ต้นทุนขาด", f"{c_short_display:,.2f} บาท")
-                cat_metrics[1].metric(f"หมวด {cat} — ต้นทุนเกิน", f"{c_over_total:,.2f} บาท")
+                # ปรับให้ Cost ขาดแสดงผลเป็นติดลบ (-)
+                cat_metrics[0].metric(f"หมวด {cat} — Cost ขาด", f"{c_short_display:,.2f} บาท")
+                cat_metrics[1].metric(f"หมวด {cat} — Cost เกิน", f"{c_over_total:,.2f} บาท")
                 cat_metrics[2].metric(f"หมวด {cat} — ขาด/เกินสุทธิ", f"{c_net_total:,.2f} บาท")
 
             st.divider()
 
-            # --- 3. สรุปยอดรวมต้นทุนภาพรวมทุกหมวดไว้ล่างสุดของหน้าจอ (มีกรอบสี่เหลี่ยมรอบสรุปไฟนอล + พื้นหลังสีเทาอ่อน + ฟอนต์ปกติ) ---
-            st.write("##### 🏆 สรุปยอดต้นทุนรวมทุกหมวดสินค้า (ภาพรวม)")
+            # --- 3. สรุปยอดรวม Cost ภาพรวมทุกหมวดไว้ล่างสุดของหน้าจอ ---
+            st.write("##### 🏆 สรุปยอด Cost รวมทุกหมวดสินค้า (ภาพรวม)")
             shortage_cost_signed_total = float(cost_result_df["Shortage cost"].sum())
             shortage_cost_display_total = -abs(shortage_cost_signed_total) if shortage_cost_signed_total != 0 else 0.0
             overage_cost_total = float(cost_result_df["Overage cost"].sum())
             net_cost_total = overage_cost_total + shortage_cost_signed_total
 
             cost_metric_columns = st.columns(2)
-            # ปรับให้ต้นทุนขาดรวมแสดงเป็นติดลบ (-)
+            # ปรับให้ Cost ขาดรวมแสดงเป็นติดลบ (-)
             cost_metric_columns[0].metric(
-                "ต้นทุนสินค้าขาดรวมทุกหมวด", f"{shortage_cost_display_total:,.2f} บาท"
+                "Cost สินค้าขาดรวมทุกหมวด", f"{shortage_cost_display_total:,.2f} บาท"
             )
             cost_metric_columns[1].metric(
-                "ต้นทุนสินค้าเกินรวมทุกหมวด", f"{overage_cost_total:,.2f} บาท"
+                "Cost สินค้าเกินรวมทุกหมวด", f"{overage_cost_total:,.2f} บาท"
             )
 
             st.write("")
             # กรอบสี่เหลี่ยมเน้นสรุปผลไฟนอลรวมทุกหมวด (พื้นหลังสีเทาอ่อน #F8FAFC + ฟอนต์ปกติ font-weight: normal)
             with st.container(border=True):
-                st.caption("สรุปต้นทุนขาด/เกินสุทธิรวมทุกหมวด")
+                st.caption("สรุป Cost ขาด/เกินสุทธิรวมทุกหมวด")
                 st.markdown(
                     f"""
                     <div style="background-color: #F8FAFC; padding: 12px 16px; border-radius: 8px; border: 1px solid #E2E8F0;">
