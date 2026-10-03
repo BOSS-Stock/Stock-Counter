@@ -131,7 +131,7 @@ def _clean_product(value: Any) -> str:
 def _combine_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     combined: dict[str, dict[str, Any]] = {}
     for row in rows:
-        key = (row.get("Category", ""), re.sub(r"\s+", " ", row["Product"]).casefold())
+        key = (str(row.get("Category", "")), re.sub(r"\s+", " ", row["Product"]).casefold())
         if key in combined:
             combined[key]["System qty"] += row["System qty"]
         else:
@@ -197,7 +197,7 @@ def parse_excel(file_bytes: bytes, fallback_category_name: str = "ทั่ว�
             )
             rows.append(
                 {
-                    "Category": category_name,
+                    "Category": str(category_name),
                     "Product": product,
                     "System qty": additions - deductions,
                     "Actual qty": None,
@@ -536,7 +536,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
             cat_df["ลำดับ"] = range(1, len(cat_df) + 1)
             # แถบแบนเนอร์คั่นหมวด
             banner_row = {col: "" for col in cat_df.columns}
-            banner_row["Product"] = f"📦 หมวดสินค้า: {cat.upper()}"
+            banner_row["Product"] = f"📦 หมวดสินค้า: {str(cat).upper()}"
             formatted_diff_rows.append(banner_row)
             formatted_diff_rows.extend(cat_df.to_dict("records"))
 
@@ -557,7 +557,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
                 cat_c_df["ลำดับ"] = range(1, len(cat_c_df) + 1)
                 
                 banner_row = {col: "" for col in export_cols}
-                banner_row["Product"] = f"💰 รายละเอียด Cost — หมวด: {cat.upper()}"
+                banner_row["Product"] = f"💰 รายละเอียด Cost — หมวด: {str(cat).upper()}"
                 formatted_cost_rows.append(banner_row)
                 formatted_cost_rows.extend(cat_c_df.to_dict("records"))
 
@@ -576,7 +576,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
                 c_net = c_over - c_short
                 
                 formatted_cost_rows.append({
-                    "Category": cat,
+                    "Category": str(cat),
                     "Product": f"สรุปหมวด {cat}",
                     "Cost Diff": c_net,
                     "Status": f"สุทธิ: {c_net:,.2f} บาท"
@@ -749,7 +749,8 @@ tabs = st.tabs(tab_titles)
 with tabs[0]:
     all_edited_dfs = []
     for cat in categories:
-        st.markdown(f'<div class="cat-banner">📦 หมวดสินค้า: {cat.upper()}</div>', unsafe_allow_html=True)
+        cat_str = str(cat)
+        st.markdown(f'<div class="cat-banner">📦 หมวดสินค้า: {cat_str.upper()}</div>', unsafe_allow_html=True)
         
         cat_df = raw_input_df[raw_input_df["Category"] == cat].copy()
         cat_df.insert(0, "ลำดับ", range(1, len(cat_df) + 1))
@@ -828,7 +829,8 @@ if actual_entered.any():
     # แสดงผลตารางผลต่างสต็อกแบบแยกหมวดหมู่พร้อมแบนเนอร์ผสานยาว
     diff_categories = list(filtered["Category"].unique())
     for cat in diff_categories:
-        st.markdown(f'<div class="cat-banner">📊 ผลต่างสต็อก — หมวด: {cat.upper()}</div>', unsafe_allow_html=True)
+        cat_str = str(cat)
+        st.markdown(f'<div class="cat-banner">📊 ผลต่างสต็อก — หมวด: {cat_str.upper()}</div>', unsafe_allow_html=True)
         
         cat_filtered = filtered[filtered["Category"] == cat].copy()
         cat_filtered["ลำดับ"] = range(1, len(cat_filtered) + 1)
@@ -899,7 +901,8 @@ if actual_entered.any():
             
             st.write("##### 📋 รายละเอียดตาราง Cost แยกตามหมวดสินค้า")
             for cat in cost_cats:
-                st.markdown(f'<div class="cat-banner">💰 รายละเอียด Cost — หมวด: {cat.upper()}</div>', unsafe_allow_html=True)
+                cat_str = str(cat)
+                st.markdown(f'<div class="cat-banner">💰 รายละเอียด Cost — หมวด: {cat_str.upper()}</div>', unsafe_allow_html=True)
                 
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat].copy()
                 cat_cost_df["ลำดับ"] = range(1, len(cat_cost_df) + 1)
@@ -927,6 +930,7 @@ if actual_entered.any():
             st.write("##### 📌 สรุปยอด Cost แยกตามหมวดสินค้า")
             
             for cat in cost_cats:
+                cat_str = str(cat)
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat]
                 c_short_signed = float(cat_cost_df["Shortage cost"].sum()) # ยอดติดลบ
                 c_short_display = -abs(c_short_signed) if c_short_signed != 0 else 0.0
@@ -934,10 +938,9 @@ if actual_entered.any():
                 c_net_total = c_over_total + c_short_signed
                 
                 # Highlight แถบหัวข้อของแต่ละหมวดแบบบาง
-                st.markdown(f'<div class="cat-summary-header">📦 หมวด {cat.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="cat-summary-header">📦 หมวด {cat_str.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท</div>', unsafe_allow_html=True)
                 
                 cat_metrics = st.columns(3)
-                # ลบคำว่า "หมวด [ชื่อหมวด] — " ออก เหลือเฉพาะชื่อประเภท Metric
                 cat_metrics[0].metric("Cost ขาด", f"{c_short_display:,.2f} บาท")
                 cat_metrics[1].metric("Cost เกิน", f"{c_over_total:,.2f} บาท")
                 cat_metrics[2].metric("ขาด/เกินสุทธิ", f"{c_net_total:,.2f} บาท")
@@ -952,7 +955,6 @@ if actual_entered.any():
             net_cost_total = overage_cost_total + shortage_cost_signed_total
 
             cost_metric_columns = st.columns(2)
-            # ปรับให้ Cost ขาดรวมแสดงเป็นติดลบ (-)
             cost_metric_columns[0].metric(
                 "Cost สินค้าขาดรวมทุกหมวด", f"{shortage_cost_display_total:,.2f} บาท"
             )
