@@ -759,7 +759,7 @@ with tabs[0]:
             cat_df,
             hide_index=True,
             use_container_width=True,
-            num_rows="dynamic",
+            num_rows="fixed",  # <--- ล็อกจำนวนแถว ป้องกันการกดเพิ่ม/ลบแถวเผลอ
             column_config={
                 "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f", disabled=True),
                 "Category": st.column_config.TextColumn("หมวดสินค้า", disabled=True),
