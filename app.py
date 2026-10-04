@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 from typing import Any
 
@@ -534,7 +535,6 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
         for cat in diff_cats:
             cat_df = result_df[result_df["Category"] == cat].copy()
             cat_df["ลำดับ"] = range(1, len(cat_df) + 1)
-            # แถบแบนเนอร์คั่นหมวด
             banner_row = {col: "" for col in cat_df.columns}
             banner_row["Product"] = f"📦 หมวดสินค้า: {str(cat).upper()}"
             formatted_diff_rows.append(banner_row)
@@ -548,10 +548,8 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
             cost_cats = list(cost_result_df["Category"].unique())
             formatted_cost_rows = []
             
-            # Export Columns เฉพาะที่ใช้งาน
             export_cols = ["ลำดับ", "Category", "Product", "System qty", "Actual qty", "Diff", "Status", "Cost", "Cost Diff"]
             
-            # 1. รายละเอียดตาราง Cost แยกตามหมวด
             for cat in cost_cats:
                 cat_c_df = cost_result_df[cost_result_df["Category"] == cat][export_cols].copy()
                 cat_c_df["ลำดับ"] = range(1, len(cat_c_df) + 1)
@@ -561,10 +559,8 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
                 formatted_cost_rows.append(banner_row)
                 formatted_cost_rows.extend(cat_c_df.to_dict("records"))
 
-            # 2. แถวว่างคั่น
             formatted_cost_rows.append({col: "" for col in export_cols})
             
-            # 3. สรุป Cost แยกรายหมวดสินค้า
             summary_banner = {col: "" for col in export_cols}
             summary_banner["Product"] = "📌 สรุปยอด Cost แยกตามหมวดสินค้า"
             formatted_cost_rows.append(summary_banner)
@@ -582,7 +578,6 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
                     "Status": f"สุทธิ: {c_net:,.2f} บาท"
                 })
 
-            # 4. สรุปรวมภาพรวมล่างสุด (Grand Total)
             formatted_cost_rows.append({col: "" for col in export_cols})
             grand_banner = {col: "" for col in export_cols}
             grand_banner["Product"] = "🏆 สรุปยอด Cost รวมทุกหมวดสินค้า (ภาพรวม)"
@@ -635,6 +630,8 @@ if "cost_rows" not in st.session_state:
     st.session_state["cost_rows"] = []
 if "cost_source_label" not in st.session_state:
     st.session_state["cost_source_label"] = ""
+if "monthly_sales_val" not in st.session_state:
+    st.session_state["monthly_sales_val"] = 0.0
 
 
 with st.sidebar:
@@ -699,19 +696,62 @@ with st.sidebar:
 
     st.divider()
 
-    # --- ช่องกรอกยอดขายของเดือนที่ทำข้อมูล ---
+    # --- บันทึก/โหลด ความคืบหน้า (Save & Resume State) ---
+    st.subheader("💾 บันทึก/ทำต่อข้ามวัน")
+    
+    # 1. โหลดงานเดิมกลับมาทำต่อ
+    loaded_draft = st.file_uploader("📂 โหลดงานเดิมมาทำต่อ (Resume)", type=["json"], key="draft_uploader")
+    if loaded_draft is not None:
+        draft_key = f"{loaded_draft.name}:{loaded_draft.size}"
+        if st.session_state.get("current_draft_key") != draft_key:
+            try:
+                draft_data = json.loads(loaded_draft.getvalue().decode("utf-8"))
+                if "inventory_rows" in draft_data:
+                    st.session_state["inventory_rows"] = draft_data["inventory_rows"]
+                    st.session_state["source_label"] = draft_data.get("source_label", "โหลดจากไฟล์ความคืบหน้า")
+                    st.session_state["monthly_sales_val"] = draft_data.get("monthly_sales", 0.0)
+                    st.session_state["current_draft_key"] = draft_key
+                    st.success("เรียกคืนข้อมูลความคืบหน้าเรียบร้อยแล้ว!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"ไม่สามารถโหลดไฟล์ความคืบหน้าได้: {e}")
+
+    # --- ยอดขายประจำเดือน ---
     st.subheader("ยอดขายประจำเดือน")
     monthly_sales = st.number_input(
         "ระบุยอดขายประจำเดือน (บาท)",
         min_value=0.0,
-        value=0.0,
+        value=float(st.session_state.get("monthly_sales_val", 0.0)),
         step=1000.0,
         format="%.2f",
         help="กรอกยอดขายรวมของเดือนนี้เพื่อคำนวณ % Cost Diff สุทธิเทียบกับยอดขาย",
+        key="monthly_sales_input"
     )
+    st.session_state["monthly_sales_val"] = monthly_sales
+
+    # 2. บันทึกงานปัจจุบันเก็บไว้
+    if "current_edited_df" in st.session_state:
+        current_rows = st.session_state["current_edited_df"].to_dict("records")
+        draft_payload = json.dumps({
+            "inventory_rows": current_rows,
+            "source_label": st.session_state.get("source_label", ""),
+            "monthly_sales": monthly_sales
+        }, ensure_ascii=False, indent=2)
+
+        st.download_button(
+            "💾 บันทึกความคืบหน้า (Save Draft)",
+            data=draft_payload.encode("utf-8"),
+            file_name="stock_progress_draft.json",
+            mime="application/json",
+            use_container_width=True,
+            help="ดาวน์โหลดไฟล์นี้เก็บไว้เปิดทำต่อวันรุ่งขึ้นได้"
+        )
+
+    st.divider()
 
     if st.button("เริ่มจากตัวอย่าง", use_container_width=True):
         st.session_state.pop("uploaded_files_key", None)
+        st.session_state["monthly_sales_val"] = 0.0
         load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน")
         st.rerun()
 
@@ -759,7 +799,7 @@ with tabs[0]:
             cat_df,
             hide_index=True,
             use_container_width=True,
-            num_rows="fixed",  # <--- ล็อกจำนวนแถว ป้องกันการกดเพิ่ม/ลบแถวเผลอ
+            num_rows="fixed",
             column_config={
                 "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f", disabled=True),
                 "Category": st.column_config.TextColumn("หมวดสินค้า", disabled=True),
@@ -776,6 +816,7 @@ with tabs[0]:
         all_edited_dfs.append(edited_cat_df)
     
     edited_df = pd.concat(all_edited_dfs, ignore_index=True)
+    st.session_state["current_edited_df"] = edited_df
 
 # หน้าแท็บรายหมวด
 for i, cat in enumerate(categories):
@@ -826,7 +867,6 @@ if actual_entered.any():
     elif filter_choice == "ยังไม่ได้นับ":
         filtered = filtered[~actual_entered]
 
-    # แสดงผลตารางผลต่างสต็อกแบบแยกหมวดหมู่พร้อมแบนเนอร์ผสานยาว
     diff_categories = list(filtered["Category"].unique())
     for cat in diff_categories:
         cat_str = str(cat)
@@ -850,7 +890,6 @@ if actual_entered.any():
             },
         )
 
-    # ปุ่มดาวน์โหลดไฟล์
     export_df = result_df.copy()
     export_df["Actual qty"] = export_df["Actual qty"].fillna("")
     
@@ -893,7 +932,6 @@ if actual_entered.any():
             )
             cost_cats = list(cost_result_df["Category"].unique())
 
-            # --- 1. แสดงตารางรายละเอียด Cost แยกตามหมวดสินค้า ---
             display_cost_cols = [
                 "ลำดับ", "Category", "Product", "System qty", 
                 "Actual qty", "Diff", "Status", "Cost", "Cost Diff"
@@ -926,18 +964,16 @@ if actual_entered.any():
 
             st.divider()
 
-            # --- 2. สรุปมูลค่า Cost แยกตามหมวดสินค้า พร้อม Highlight หัวข้อ ---
             st.write("##### 📌 สรุปยอด Cost แยกตามหมวดสินค้า")
             
             for cat in cost_cats:
                 cat_str = str(cat)
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat]
-                c_short_signed = float(cat_cost_df["Shortage cost"].sum()) # ยอดติดลบ
+                c_short_signed = float(cat_cost_df["Shortage cost"].sum())
                 c_short_display = -abs(c_short_signed) if c_short_signed != 0 else 0.0
                 c_over_total = float(cat_cost_df["Overage cost"].sum())
                 c_net_total = c_over_total + c_short_signed
                 
-                # Highlight แถบหัวข้อของแต่ละหมวดแบบบาง
                 st.markdown(f'<div class="cat-summary-header">📦 หมวด {cat_str.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท</div>', unsafe_allow_html=True)
                 
                 cat_metrics = st.columns(3)
@@ -947,7 +983,6 @@ if actual_entered.any():
 
             st.divider()
 
-            # --- 3. สรุปยอดรวม Cost ภาพรวมทุกหมวดไว้ล่างสุดของหน้าจอ ---
             st.write("##### 🏆 สรุปยอด Cost รวมทุกหมวดสินค้า (ภาพรวม)")
             shortage_cost_signed_total = float(cost_result_df["Shortage cost"].sum())
             shortage_cost_display_total = -abs(shortage_cost_signed_total) if shortage_cost_signed_total != 0 else 0.0
@@ -963,7 +998,6 @@ if actual_entered.any():
             )
 
             st.write("")
-            # --- มินิมอลดีไซน์การ์ดสรุปไฟนอล ---
             if monthly_sales > 0:
                 pct_diff = (net_cost_total / monthly_sales) * 100
                 badge_bg = "#FEE2E2" if pct_diff < 0 else "#DCFCE7"
