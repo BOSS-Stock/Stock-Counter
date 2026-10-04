@@ -526,10 +526,8 @@ def make_cost_result_table(
 
 
 def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame, monthly_sales: float = 0.0) -> bytes:
-    """สร้างไฟล์ Excel (.xlsx) ที่จัดรูปแบบแบ่งหมวดและมีตารางสรุปเหมือนในแอป"""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        # --- ชีตที่ 1: ผลต่างสต็อก ---
         diff_cats = list(result_df["Category"].unique())
         formatted_diff_rows = []
         for cat in diff_cats:
@@ -543,7 +541,6 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
         sheet1_df = pd.DataFrame(formatted_diff_rows)
         sheet1_df.to_excel(writer, sheet_name="ผลต่างสต็อก", index=False)
 
-        # --- ชีตที่ 2: รายงาน Cost และสรุปภาพรวม ---
         if not cost_result_df.empty:
             cost_cats = list(cost_result_df["Category"].unique())
             formatted_cost_rows = []
@@ -624,6 +621,34 @@ def load_rows(rows: list[dict[str, Any]], source_label: str) -> None:
     st.session_state["source_label"] = source_label
 
 
+def merge_new_rows(new_rows: list[dict[str, Any]], new_label: str) -> None:
+    """รวมรายการสินค้าใหม่เข้ากับข้อมูลที่มีอยู่แล้วโดยคงยอดนับเดิมไว้"""
+    existing_rows = st.session_state.get("inventory_rows", [])
+    
+    # ดึงตารางปัจจุบันถ้าผู้ใช้กรอกยอดไว้แล้ว
+    if "current_edited_df" in st.session_state:
+        edited_df = st.session_state["current_edited_df"].copy()
+        if "ลำดับ" in edited_df.columns:
+            edited_df = edited_df.drop(columns=["ลำดับ"])
+        existing_rows = edited_df.to_dict("records")
+
+    existing_dict = {
+        (str(r.get("Category", "")), _clean_product(r.get("Product", "")).casefold()): r
+        for r in existing_rows
+    }
+
+    for nr in new_rows:
+        key = (str(nr.get("Category", "")), _clean_product(nr.get("Product", "")).casefold())
+        if key in existing_dict:
+            # อัปเดตยอดในระบบแต่คงยอดนับจริงเดิมไว้
+            existing_dict[key]["System qty"] = nr["System qty"]
+        else:
+            existing_dict[key] = nr.copy()
+
+    st.session_state["inventory_rows"] = list(existing_dict.values())
+    st.session_state["source_label"] = f"{st.session_state.get('source_label', '')} + {new_label}".strip(" +")
+
+
 if "inventory_rows" not in st.session_state:
     load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน")
 if "cost_rows" not in st.session_state:
@@ -663,8 +688,10 @@ with st.sidebar:
 
             st.session_state["uploaded_files_key"] = files_key
             if all_parsed_rows:
-                load_rows(all_parsed_rows, f"อัปโหลด {len(success_files)} ไฟล์เรียบร้อย")
-                st.success(f"นำเข้าข้อมูลเรียบร้อย {len(all_parsed_rows)} รายการ")
+                # รวมข้อมูลหมวดใหม่เข้ากับข้อมูลเดิมที่เปิดค้างไว้
+                merge_new_rows(all_parsed_rows, f"อัปโหลด {len(success_files)} ไฟล์")
+                st.success(f"รวมข้อมูลหมวดใหม่เรียบร้อย {len(all_parsed_rows)} รายการ")
+                st.rerun()
             else:
                 st.warning("ไม่พบรายการสินค้าจากไฟล์ที่อัปโหลด")
 
@@ -699,7 +726,6 @@ with st.sidebar:
     # --- บันทึก/โหลด ความคืบหน้า (Save & Resume State) ---
     st.subheader("💾 บันทึก/ทำต่อข้ามวัน")
     
-    # 1. โหลดงานเดิมกลับมาทำต่อ
     loaded_draft = st.file_uploader("📂 โหลดงานเดิมมาทำต่อ (Resume)", type=["json"], key="draft_uploader")
     if loaded_draft is not None:
         draft_key = f"{loaded_draft.name}:{loaded_draft.size}"
@@ -713,12 +739,11 @@ with st.sidebar:
                     st.session_state["cost_source_label"] = draft_data.get("cost_source_label", "")
                     st.session_state["monthly_sales_val"] = draft_data.get("monthly_sales", 0.0)
                     st.session_state["current_draft_key"] = draft_key
-                    st.success("เรียกคืนข้อมูลความคืบหน้าและข้อมูล Cost เรียบร้อยแล้ว!")
+                    st.success("เรียกคืนข้อมูลความคืบหน้าเรียบร้อยแล้ว!")
                     st.rerun()
             except Exception as e:
                 st.error(f"ไม่สามารถโหลดไฟล์ความคืบหน้าได้: {e}")
 
-    # --- ยอดขายประจำเดือน ---
     st.subheader("ยอดขายประจำเดือน")
     monthly_sales = st.number_input(
         "ระบุยอดขายประจำเดือน (บาท)",
@@ -731,7 +756,6 @@ with st.sidebar:
     )
     st.session_state["monthly_sales_val"] = monthly_sales
 
-    # 2. บันทึกงานปัจจุบันเก็บไว้
     if "current_edited_df" in st.session_state:
         save_df = st.session_state["current_edited_df"].copy()
         if "ลำดับ" in save_df.columns:
