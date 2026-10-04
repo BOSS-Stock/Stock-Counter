@@ -709,9 +709,11 @@ with st.sidebar:
                 if "inventory_rows" in draft_data:
                     st.session_state["inventory_rows"] = draft_data["inventory_rows"]
                     st.session_state["source_label"] = draft_data.get("source_label", "โหลดจากไฟล์ความคืบหน้า")
+                    st.session_state["cost_rows"] = draft_data.get("cost_rows", [])
+                    st.session_state["cost_source_label"] = draft_data.get("cost_source_label", "")
                     st.session_state["monthly_sales_val"] = draft_data.get("monthly_sales", 0.0)
                     st.session_state["current_draft_key"] = draft_key
-                    st.success("เรียกคืนข้อมูลความคืบหน้าเรียบร้อยแล้ว!")
+                    st.success("เรียกคืนข้อมูลความคืบหน้าและข้อมูล Cost เรียบร้อยแล้ว!")
                     st.rerun()
             except Exception as e:
                 st.error(f"ไม่สามารถโหลดไฟล์ความคืบหน้าได้: {e}")
@@ -739,6 +741,8 @@ with st.sidebar:
         draft_payload = json.dumps({
             "inventory_rows": current_rows,
             "source_label": st.session_state.get("source_label", ""),
+            "cost_rows": st.session_state.get("cost_rows", []),
+            "cost_source_label": st.session_state.get("cost_source_label", ""),
             "monthly_sales": monthly_sales
         }, ensure_ascii=False, indent=2)
 
@@ -756,6 +760,8 @@ with st.sidebar:
     if st.button("เริ่มจากตัวอย่าง", use_container_width=True):
         st.session_state.pop("uploaded_files_key", None)
         st.session_state["monthly_sales_val"] = 0.0
+        st.session_state["cost_rows"] = []
+        st.session_state["cost_source_label"] = ""
         load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน")
         st.rerun()
 
