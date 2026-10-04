@@ -616,16 +616,21 @@ def status_cell_style(status: Any) -> str:
     )
 
 
-def load_rows(rows: list[dict[str, Any]], source_label: str) -> None:
+def load_rows(rows: list[dict[str, Any]], source_label: str, is_sample: bool = False) -> None:
     st.session_state["inventory_rows"] = rows
     st.session_state["source_label"] = source_label
+    st.session_state["is_sample_data"] = is_sample
 
 
 def merge_new_rows(new_rows: list[dict[str, Any]], new_label: str) -> None:
-    """รวมรายการสินค้าใหม่เข้ากับข้อมูลที่มีอยู่แล้วโดยคงยอดนับเดิมไว้"""
+    """รวมรายการสินค้าใหม่เข้ากับข้อมูลที่มีอยู่แล้ว โดยเคลียร์สินค้าตัวอย่างออกอัตโนมัติ"""
+    # ถ้าข้อมูลปัจจุบันเป็นสินค้าตัวอย่าง ให้แทนที่ด้วยข้อมูลใหม่ทันที
+    if st.session_state.get("is_sample_data", False):
+        load_rows(new_rows, new_label, is_sample=False)
+        return
+
     existing_rows = st.session_state.get("inventory_rows", [])
     
-    # ดึงตารางปัจจุบันถ้าผู้ใช้กรอกยอดไว้แล้ว
     if "current_edited_df" in st.session_state:
         edited_df = st.session_state["current_edited_df"].copy()
         if "ลำดับ" in edited_df.columns:
@@ -640,17 +645,17 @@ def merge_new_rows(new_rows: list[dict[str, Any]], new_label: str) -> None:
     for nr in new_rows:
         key = (str(nr.get("Category", "")), _clean_product(nr.get("Product", "")).casefold())
         if key in existing_dict:
-            # อัปเดตยอดในระบบแต่คงยอดนับจริงเดิมไว้
             existing_dict[key]["System qty"] = nr["System qty"]
         else:
             existing_dict[key] = nr.copy()
 
     st.session_state["inventory_rows"] = list(existing_dict.values())
     st.session_state["source_label"] = f"{st.session_state.get('source_label', '')} + {new_label}".strip(" +")
+    st.session_state["is_sample_data"] = False
 
 
 if "inventory_rows" not in st.session_state:
-    load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน")
+    load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน", is_sample=True)
 if "cost_rows" not in st.session_state:
     st.session_state["cost_rows"] = []
 if "cost_source_label" not in st.session_state:
@@ -688,9 +693,8 @@ with st.sidebar:
 
             st.session_state["uploaded_files_key"] = files_key
             if all_parsed_rows:
-                # รวมข้อมูลหมวดใหม่เข้ากับข้อมูลเดิมที่เปิดค้างไว้
                 merge_new_rows(all_parsed_rows, f"อัปโหลด {len(success_files)} ไฟล์")
-                st.success(f"รวมข้อมูลหมวดใหม่เรียบร้อย {len(all_parsed_rows)} รายการ")
+                st.success(f"นำเข้าข้อมูลเรียบร้อย {len(all_parsed_rows)} รายการ")
                 st.rerun()
             else:
                 st.warning("ไม่พบรายการสินค้าจากไฟล์ที่อัปโหลด")
@@ -738,6 +742,7 @@ with st.sidebar:
                     st.session_state["cost_rows"] = draft_data.get("cost_rows", [])
                     st.session_state["cost_source_label"] = draft_data.get("cost_source_label", "")
                     st.session_state["monthly_sales_val"] = draft_data.get("monthly_sales", 0.0)
+                    st.session_state["is_sample_data"] = False
                     st.session_state["current_draft_key"] = draft_key
                     st.success("เรียกคืนข้อมูลความคืบหน้าเรียบร้อยแล้ว!")
                     st.rerun()
@@ -786,7 +791,7 @@ with st.sidebar:
         st.session_state["monthly_sales_val"] = 0.0
         st.session_state["cost_rows"] = []
         st.session_state["cost_source_label"] = ""
-        load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน")
+        load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน", is_sample=True)
         st.rerun()
 
     if st.session_state.get("cost_source_label"):
