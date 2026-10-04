@@ -731,7 +731,11 @@ with st.sidebar:
 
     # 2. บันทึกงานปัจจุบันเก็บไว้
     if "current_edited_df" in st.session_state:
-        current_rows = st.session_state["current_edited_df"].to_dict("records")
+        save_df = st.session_state["current_edited_df"].copy()
+        if "ลำดับ" in save_df.columns:
+            save_df = save_df.drop(columns=["ลำดับ"])
+        current_rows = save_df.to_dict("records")
+        
         draft_payload = json.dumps({
             "inventory_rows": current_rows,
             "source_label": st.session_state.get("source_label", ""),
@@ -793,6 +797,8 @@ with tabs[0]:
         st.markdown(f'<div class="cat-banner">📦 หมวดสินค้า: {cat_str.upper()}</div>', unsafe_allow_html=True)
         
         cat_df = raw_input_df[raw_input_df["Category"] == cat].copy()
+        if "ลำดับ" in cat_df.columns:
+            cat_df = cat_df.drop(columns=["ลำดับ"])
         cat_df.insert(0, "ลำดับ", range(1, len(cat_df) + 1))
         
         edited_cat_df = st.data_editor(
@@ -822,6 +828,8 @@ with tabs[0]:
 for i, cat in enumerate(categories):
     with tabs[i + 1]:
         cat_df = raw_input_df[raw_input_df["Category"] == cat].copy()
+        if "ลำดับ" in cat_df.columns:
+            cat_df = cat_df.drop(columns=["ลำดับ"])
         cat_df.insert(0, "ลำดับ", range(1, len(cat_df) + 1))
         st.dataframe(
             cat_df,
@@ -873,7 +881,9 @@ if actual_entered.any():
         st.markdown(f'<div class="cat-banner">📊 ผลต่างสต็อก — หมวด: {cat_str.upper()}</div>', unsafe_allow_html=True)
         
         cat_filtered = filtered[filtered["Category"] == cat].copy()
-        cat_filtered["ลำดับ"] = range(1, len(cat_filtered) + 1)
+        if "ลำดับ" in cat_filtered.columns:
+            cat_filtered = cat_filtered.drop(columns=["ลำดับ"])
+        cat_filtered.insert(0, "ลำดับ", range(1, len(cat_filtered) + 1))
         
         st.dataframe(
             cat_filtered.style.map(status_cell_style, subset=["Status"]),
@@ -943,7 +953,9 @@ if actual_entered.any():
                 st.markdown(f'<div class="cat-banner">💰 รายละเอียด Cost — หมวด: {cat_str.upper()}</div>', unsafe_allow_html=True)
                 
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat].copy()
-                cat_cost_df["ลำดับ"] = range(1, len(cat_cost_df) + 1)
+                if "ลำดับ" in cat_cost_df.columns:
+                    cat_cost_df = cat_cost_df.drop(columns=["ลำดับ"])
+                cat_cost_df.insert(0, "ลำดับ", range(1, len(cat_cost_df) + 1))
                 
                 st.dataframe(
                     cat_cost_df[display_cost_cols].style.map(status_cell_style, subset=["Status"]),
