@@ -150,7 +150,7 @@ STOCK_CATEGORIES = [
     "Candy",
     "Chocolate Icecream",
     "Other Product",
-    "Overgead",
+    "Overhead",
     "Packaging",
     "Raw Material Beverage (VIP)",
     "Raw Material Light Meal",
@@ -160,7 +160,7 @@ STOCK_CATEGORIES = [
 ]
 # ชื่อสะกดอื่นที่ให้ถือว่าเป็นหมวดเดียวกัน (key = ชื่อที่ผ่าน normalize แล้ว)
 CATEGORY_ALIASES = {
-    "overhead": "Overgead",
+    "overhead": "Overhead",
 }
 _CATEGORY_LOOKUP: dict[str, str] = {
     **{_normalize_column_name(name): name for name in STOCK_CATEGORIES},
