@@ -160,7 +160,7 @@ STOCK_CATEGORIES = [
 ]
 # ชื่อสะกดอื่นที่ให้ถือว่าเป็นหมวดเดียวกัน (key = ชื่อที่ผ่าน normalize แล้ว)
 CATEGORY_ALIASES = {
-    "overhead": "Overhead",
+    "overgead": "Overhead",
 }
 _CATEGORY_LOOKUP: dict[str, str] = {
     **{_normalize_column_name(name): name for name in STOCK_CATEGORIES},
@@ -760,11 +760,6 @@ with st.sidebar:
             )
         else:
             st.warning("ไม่พบรายการสินค้าใน 11 หมวดจากไฟล์ที่อัปโหลด")
-        if import_report["skipped"]:
-            st.warning(
-                "ข้ามรายการที่อยู่นอก 11 หมวด: "
-                + ", ".join(f"{k} ({v})" for k, v in import_report["skipped"].items())
-            )
         if import_report["count"] and import_report["missing"]:
             st.info("ไม่พบสินค้าในหมวด: " + ", ".join(import_report["missing"]))
 
