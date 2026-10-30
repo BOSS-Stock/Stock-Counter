@@ -144,9 +144,50 @@ def _product_key(value: Any) -> str:
     return re.sub(r"\s+", " ", _clean_product(value)).casefold()
 
 
-def parse_excel(file_bytes: bytes, fallback_category_name: str = "ทั่วไป") -> list[dict[str, Any]]:
+# 11 หมวดสินค้าที่ระบบจะนำมาทำตาราง (เรียงตามลำดับที่แสดงผล)
+STOCK_CATEGORIES = [
+    "Beverage",
+    "Candy",
+    "Chocolate Icecream",
+    "Other Product",
+    "Overgead",
+    "Packaging",
+    "Raw Material Beverage (VIP)",
+    "Raw Material Light Meal",
+    "Raw Material Popcorn",
+    "Raw Material Soft Drink",
+    "Snack",
+]
+# ชื่อสะกดอื่นที่ให้ถือว่าเป็นหมวดเดียวกัน (key = ชื่อที่ผ่าน normalize แล้ว)
+CATEGORY_ALIASES = {
+    "overhead": "Overgead",
+}
+_CATEGORY_LOOKUP: dict[str, str] = {
+    **{_normalize_column_name(name): name for name in STOCK_CATEGORIES},
+    **{_normalize_column_name(alias): name for alias, name in CATEGORY_ALIASES.items()},
+}
+_CATEGORY_ORDER = {name: index for index, name in enumerate(STOCK_CATEGORIES)}
+
+
+def _match_category(value: Any) -> str | None:
+    key = _normalize_column_name(value)
+    return _CATEGORY_LOOKUP.get(key) if key else None
+
+
+def _category_sort_key(category: Any) -> int:
+    return _CATEGORY_ORDER.get(str(category), len(STOCK_CATEGORIES))
+
+
+def parse_excel(file_bytes: bytes) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """อ่านไฟล์ Excel ไฟล์เดียว แล้วแยกสินค้าเข้า 11 หมวดตาม STOCK_CATEGORIES
+
+    หมวดสินค้าดูจากคอลัมน์ A ของแต่ละแถว (แถวที่คอลัมน์ A ว่างจะใช้หมวดล่าสุดต่อเนื่องลงมา)
+    หรือจากชื่อชีต ถ้าชื่อชีตตรงกับหมวดใดหมวดหนึ่ง
+    คืนค่า (รายการสินค้า, จำนวนแถวที่ถูกข้ามเพราะอยู่นอก 11 หมวด)
+    """
     workbook = pd.read_excel(io.BytesIO(file_bytes), sheet_name=None)
     rows: list[dict[str, Any]] = []
+    skipped: dict[str, int] = {}
     product_candidates = (
         "ชื่อสินค้า",
         "สินค้า",
@@ -157,6 +198,7 @@ def parse_excel(file_bytes: bytes, fallback_category_name: str = "ทั่ว�
         "item",
         "รายการ",
     )
+    ignored_col_a_values = {"nan", "none", "ลำดับ", "no", "no."}
     eligible_sheet_found = False
 
     for sheet_name, sheet in workbook.items():
@@ -176,17 +218,32 @@ def parse_excel(file_bytes: bytes, fallback_category_name: str = "ทั่ว�
         if product_column is None:
             continue
 
+        # หมวดเริ่มต้นของชีต: ถ้าชื่อชีตตรงกับหมวดใดหมวดหนึ่ง
+        current_category = _match_category(sheet_name)
+        current_label = None if current_category else f"ชีต {sheet_name}"
+        category_from_col_a = product_column != columns[0]
+
         for row_index, product_value in enumerate(sheet[product_column]):
+            # อัปเดตหมวดจากคอลัมน์ A ก่อนเช็กสินค้า เพื่อรองรับแถวหัวหมวดและ merged cell
+            col_a_clean = _clean_product(sheet.iloc[row_index, 0])
+            if (
+                category_from_col_a
+                and col_a_clean
+                and col_a_clean.casefold() not in ignored_col_a_values
+                and _number_from_text(col_a_clean) is None  # ข้ามเลขลำดับ
+            ):
+                matched = _match_category(col_a_clean)
+                current_category = matched
+                current_label = None if matched else col_a_clean
+
             product = _clean_product(product_value)
             if not product or product.casefold() in {"nan", "none"}:
                 continue
-            
-            col_a_val = sheet.iloc[row_index, 0]
-            col_a_clean = _clean_product(col_a_val)
-            if col_a_clean and col_a_clean.casefold() not in {"nan", "none", "ลำดับ", "no", "no."}:
-                category_name = col_a_clean
-            else:
-                category_name = fallback_category_name
+
+            if current_category is None:
+                label = current_label or "ไม่ระบุหมวด"
+                skipped[label] = skipped.get(label, 0) + 1
+                continue
 
             additions = sum(
                 _number_from_text(str(sheet.iloc[row_index, column_index])) or 0
@@ -198,7 +255,7 @@ def parse_excel(file_bytes: bytes, fallback_category_name: str = "ทั่ว�
             )
             rows.append(
                 {
-                    "Category": str(category_name),
+                    "Category": current_category,
                     "Product": product,
                     "System qty": additions - deductions,
                     "Actual qty": None,
@@ -207,9 +264,9 @@ def parse_excel(file_bytes: bytes, fallback_category_name: str = "ทั่ว�
 
     if not eligible_sheet_found:
         raise ValueError(
-            f"ไฟล์ต้องมีอย่างน้อย 14 คอลัมน์ เพื่อคำนวณยอดในระบบ"
+            "ไฟล์ต้องมีอย่างน้อย 14 คอลัมน์ เพื่อคำนวณยอดในระบบ"
         )
-    return [row for row in _combine_rows(rows) if row["System qty"] != 0]
+    return [row for row in _combine_rows(rows) if row["System qty"] != 0], skipped
 
 
 PDF_PRODUCT_CANDIDATES = (
@@ -544,30 +601,30 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
         if not cost_result_df.empty:
             cost_cats = list(cost_result_df["Category"].unique())
             formatted_cost_rows = []
-            
+
             export_cols = ["ลำดับ", "Category", "Product", "System qty", "Actual qty", "Diff", "Status", "Cost", "Cost Diff"]
-            
+
             for cat in cost_cats:
                 cat_c_df = cost_result_df[cost_result_df["Category"] == cat][export_cols].copy()
                 cat_c_df["ลำดับ"] = range(1, len(cat_c_df) + 1)
-                
+
                 banner_row = {col: "" for col in export_cols}
                 banner_row["Product"] = f"💰 รายละเอียด Cost — หมวด: {str(cat).upper()}"
                 formatted_cost_rows.append(banner_row)
                 formatted_cost_rows.extend(cat_c_df.to_dict("records"))
 
             formatted_cost_rows.append({col: "" for col in export_cols})
-            
+
             summary_banner = {col: "" for col in export_cols}
             summary_banner["Product"] = "📌 สรุปยอด Cost แยกตามหมวดสินค้า"
             formatted_cost_rows.append(summary_banner)
-            
+
             for cat in cost_cats:
                 cat_c_df = cost_result_df[cost_result_df["Category"] == cat]
                 c_short = abs(float(cat_c_df["Shortage cost"].sum()))
                 c_over = float(cat_c_df["Overage cost"].sum())
                 c_net = c_over - c_short
-                
+
                 formatted_cost_rows.append({
                     "Category": str(cat),
                     "Product": f"สรุปหมวด {cat}",
@@ -583,7 +640,7 @@ def generate_excel_report(result_df: pd.DataFrame, cost_result_df: pd.DataFrame,
             tot_short = abs(float(cost_result_df["Shortage cost"].sum()))
             tot_over = float(cost_result_df["Overage cost"].sum())
             tot_net = tot_over - tot_short
-            
+
             pct_sales_str = f" ({tot_net / monthly_sales * 100:.2f}% ของยอดขาย)" if monthly_sales > 0 else ""
 
             formatted_cost_rows.append({
@@ -630,7 +687,7 @@ def merge_new_rows(new_rows: list[dict[str, Any]], new_label: str) -> None:
         return
 
     existing_rows = st.session_state.get("inventory_rows", [])
-    
+
     if "current_edited_df" in st.session_state:
         edited_df = st.session_state["current_edited_df"].copy()
         if "ลำดับ" in edited_df.columns:
@@ -666,38 +723,50 @@ if "monthly_sales_val" not in st.session_state:
 
 with st.sidebar:
     st.header("นำเข้าข้อมูล")
-    uploaded_files = st.file_uploader(
-        "อัปโหลดไฟล์ Excel สต็อก (สูงสุด 11 ไฟล์)",
+    uploaded_file = st.file_uploader(
+        "อัปโหลดไฟล์ Excel รายการสินค้า (1 ไฟล์)",
         type=["xlsx", "xls"],
-        accept_multiple_files=True,
-        help="รองรับการอัปโหลดได้สูงสุด 11 ไฟล์พร้อมกัน โดยระบบจะดึงหมวดสินค้าจากคอลัมน์ A",
+        accept_multiple_files=False,
+        help="อัปโหลดไฟล์เดียว ระบบจะแยกสินค้าเป็น 11 หมวดตามคอลัมน์ A (หรือชื่อชีต)",
     )
-    if uploaded_files:
-        if len(uploaded_files) > 11:
-            st.error("สามารถอัปโหลดได้สูงสุด 11 ไฟล์เท่านั้นครับ")
-            uploaded_files = uploaded_files[:11]
-
-        files_key = "-".join([f"{f.name}:{f.size}" for f in uploaded_files])
-        if st.session_state.get("uploaded_files_key") != files_key:
-            all_parsed_rows: list[dict[str, Any]] = []
-            success_files = []
+    if uploaded_file is not None:
+        file_key = f"{uploaded_file.name}:{uploaded_file.size}"
+        if st.session_state.get("uploaded_files_key") != file_key:
+            parsed_rows: list[dict[str, Any]] = []
+            skipped_rows: dict[str, int] = {}
             with st.spinner("กำลังอ่านรายการสินค้าจาก Excel..."):
-                for file in uploaded_files:
-                    fallback_cat = file.name.rsplit(".", 1)[0]
-                    try:
-                        parsed = parse_excel(file.getvalue(), fallback_category_name=fallback_cat)
-                        all_parsed_rows.extend(parsed)
-                        success_files.append(fallback_cat)
-                    except Exception as error:
-                        st.error(f"อ่านไฟล์ {file.name} ไม่สำเร็จ: {error}")
+                try:
+                    parsed_rows, skipped_rows = parse_excel(uploaded_file.getvalue())
+                except Exception as error:
+                    st.error(f"อ่านไฟล์ {uploaded_file.name} ไม่สำเร็จ: {error}")
 
-            st.session_state["uploaded_files_key"] = files_key
-            if all_parsed_rows:
-                merge_new_rows(all_parsed_rows, f"อัปโหลด {len(success_files)} ไฟล์")
-                st.success(f"นำเข้าข้อมูลเรียบร้อย {len(all_parsed_rows)} รายการ")
+            st.session_state["uploaded_files_key"] = file_key
+            found_categories = {row["Category"] for row in parsed_rows}
+            st.session_state["import_report"] = {
+                "file": uploaded_file.name,
+                "count": len(parsed_rows),
+                "skipped": skipped_rows,
+                "missing": [c for c in STOCK_CATEGORIES if c not in found_categories],
+            }
+            if parsed_rows:
+                merge_new_rows(parsed_rows, f"อัปโหลด {uploaded_file.name}")
                 st.rerun()
-            else:
-                st.warning("ไม่พบรายการสินค้าจากไฟล์ที่อัปโหลด")
+
+    import_report = st.session_state.get("import_report")
+    if import_report:
+        if import_report["count"]:
+            st.success(
+                f"นำเข้า {import_report['file']} เรียบร้อย {import_report['count']} รายการ"
+            )
+        else:
+            st.warning("ไม่พบรายการสินค้าใน 11 หมวดจากไฟล์ที่อัปโหลด")
+        if import_report["skipped"]:
+            st.warning(
+                "ข้ามรายการที่อยู่นอก 11 หมวด: "
+                + ", ".join(f"{k} ({v})" for k, v in import_report["skipped"].items())
+            )
+        if import_report["count"] and import_report["missing"]:
+            st.info("ไม่พบสินค้าในหมวด: " + ", ".join(import_report["missing"]))
 
     st.divider()
     st.subheader("ไฟล์ Cost สินค้า")
@@ -729,7 +798,7 @@ with st.sidebar:
 
     # --- บันทึก/โหลด ความคืบหน้า (Save & Resume State) ---
     st.subheader("💾 บันทึก/ทำต่อข้ามวัน")
-    
+
     loaded_draft = st.file_uploader("📂 โหลดงานเดิมมาทำต่อ (Resume)", type=["json"], key="draft_uploader")
     if loaded_draft is not None:
         draft_key = f"{loaded_draft.name}:{loaded_draft.size}"
@@ -744,6 +813,7 @@ with st.sidebar:
                     st.session_state["monthly_sales_val"] = draft_data.get("monthly_sales", 0.0)
                     st.session_state["is_sample_data"] = False
                     st.session_state["current_draft_key"] = draft_key
+                    st.session_state.pop("import_report", None)
                     st.success("เรียกคืนข้อมูลความคืบหน้าเรียบร้อยแล้ว!")
                     st.rerun()
             except Exception as e:
@@ -766,7 +836,7 @@ with st.sidebar:
         if "ลำดับ" in save_df.columns:
             save_df = save_df.drop(columns=["ลำดับ"])
         current_rows = save_df.to_dict("records")
-        
+
         draft_payload = json.dumps({
             "inventory_rows": current_rows,
             "source_label": st.session_state.get("source_label", ""),
@@ -788,6 +858,7 @@ with st.sidebar:
 
     if st.button("เริ่มจากตัวอย่าง", use_container_width=True):
         st.session_state.pop("uploaded_files_key", None)
+        st.session_state.pop("import_report", None)
         st.session_state["monthly_sales_val"] = 0.0
         st.session_state["cost_rows"] = []
         st.session_state["cost_source_label"] = ""
@@ -800,7 +871,7 @@ with st.sidebar:
 
 st.title("ระบบนับสต็อก Con BLP")
 st.write(
-    "อัปโหลดรายการจาก Excel กรอกยอดที่นับได้จริง แล้วดูส่วนต่างระหว่างหน้าร้านกับระบบทันที"
+    "อัปโหลดไฟล์ Excel รายการสินค้า (1 ไฟล์) กรอกยอดที่นับได้จริง แล้วดูส่วนต่างระหว่างหน้าร้านกับระบบทันที"
 )
 st.caption(f"แหล่งข้อมูล: {st.session_state.get('source_label', 'ยังไม่ได้เลือกไฟล์')}")
 
@@ -820,7 +891,7 @@ raw_input_df["Actual qty"] = raw_input_df["Actual qty"].astype(object).where(
 st.subheader("กรอกยอดนับจริง")
 st.caption("แก้ไขเฉพาะคอลัมน์ “นับจริงหน้าร้าน” จากนั้นดูผลสรุปด้านล่าง")
 
-categories = list(raw_input_df["Category"].unique())
+categories = sorted(raw_input_df["Category"].unique(), key=_category_sort_key)
 tab_titles = ["ภาพรวม (รวมทุกหมวด)"] + [f"📦 {cat}" for cat in categories]
 tabs = st.tabs(tab_titles)
 
@@ -830,12 +901,12 @@ with tabs[0]:
     for cat in categories:
         cat_str = str(cat)
         st.markdown(f'<div class="cat-banner">📦 หมวดสินค้า: {cat_str.upper()}</div>', unsafe_allow_html=True)
-        
+
         cat_df = raw_input_df[raw_input_df["Category"] == cat].copy()
         if "ลำดับ" in cat_df.columns:
             cat_df = cat_df.drop(columns=["ลำดับ"])
         cat_df.insert(0, "ลำดับ", range(1, len(cat_df) + 1))
-        
+
         edited_cat_df = st.data_editor(
             cat_df,
             hide_index=True,
@@ -855,7 +926,7 @@ with tabs[0]:
             key=f"inventory_editor_cat_{cat}",
         )
         all_edited_dfs.append(edited_cat_df)
-    
+
     edited_df = pd.concat(all_edited_dfs, ignore_index=True)
     st.session_state["current_edited_df"] = edited_df
 
@@ -914,12 +985,12 @@ if actual_entered.any():
     for cat in diff_categories:
         cat_str = str(cat)
         st.markdown(f'<div class="cat-banner">📊 ผลต่างสต็อก — หมวด: {cat_str.upper()}</div>', unsafe_allow_html=True)
-        
+
         cat_filtered = filtered[filtered["Category"] == cat].copy()
         if "ลำดับ" in cat_filtered.columns:
             cat_filtered = cat_filtered.drop(columns=["ลำดับ"])
         cat_filtered.insert(0, "ลำดับ", range(1, len(cat_filtered) + 1))
-        
+
         st.dataframe(
             cat_filtered.style.map(status_cell_style, subset=["Status"]),
             hide_index=True,
@@ -937,12 +1008,12 @@ if actual_entered.any():
 
     export_df = result_df.copy()
     export_df["Actual qty"] = export_df["Actual qty"].fillna("")
-    
+
     cost_rows = st.session_state.get("cost_rows", [])
     cost_result_df = make_cost_result_table(result_df, cost_rows) if cost_rows else pd.DataFrame()
 
     excel_bytes = generate_excel_report(result_df, cost_result_df, monthly_sales)
-    
+
     col_dl1, col_dl2 = st.columns([1, 1])
     with col_dl1:
         st.download_button(
@@ -981,17 +1052,17 @@ if actual_entered.any():
                 "ลำดับ", "Category", "Product", "System qty", 
                 "Actual qty", "Diff", "Status", "Cost", "Cost Diff"
             ]
-            
+
             st.write("##### 📋 รายละเอียดตาราง Cost แยกตามหมวดสินค้า")
             for cat in cost_cats:
                 cat_str = str(cat)
                 st.markdown(f'<div class="cat-banner">💰 รายละเอียด Cost — หมวด: {cat_str.upper()}</div>', unsafe_allow_html=True)
-                
+
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat].copy()
                 if "ลำดับ" in cat_cost_df.columns:
                     cat_cost_df = cat_cost_df.drop(columns=["ลำดับ"])
                 cat_cost_df.insert(0, "ลำดับ", range(1, len(cat_cost_df) + 1))
-                
+
                 st.dataframe(
                     cat_cost_df[display_cost_cols].style.map(status_cell_style, subset=["Status"]),
                     hide_index=True,
@@ -1012,7 +1083,7 @@ if actual_entered.any():
             st.divider()
 
             st.write("##### 📌 สรุปยอด Cost แยกตามหมวดสินค้า")
-            
+
             for cat in cost_cats:
                 cat_str = str(cat)
                 cat_cost_df = cost_result_df[cost_result_df["Category"] == cat]
@@ -1020,9 +1091,9 @@ if actual_entered.any():
                 c_short_display = -abs(c_short_signed) if c_short_signed != 0 else 0.0
                 c_over_total = float(cat_cost_df["Overage cost"].sum())
                 c_net_total = c_over_total + c_short_signed
-                
+
                 st.markdown(f'<div class="cat-summary-header">📦 หมวด {cat_str.upper()} — ยอดสุทธิ {c_net_total:,.2f} บาท</div>', unsafe_allow_html=True)
-                
+
                 cat_metrics = st.columns(3)
                 cat_metrics[0].metric("Cost ขาด", f"{c_short_display:,.2f} บาท")
                 cat_metrics[1].metric("Cost เกิน", f"{c_over_total:,.2f} บาท")
