@@ -810,6 +810,155 @@ def merge_new_rows(new_rows: list[dict[str, Any]], new_label: str) -> None:
     st.session_state["is_sample_data"] = False
 
 
+def _md_escape(text: str) -> str:
+    """ใส่ \\ นำหน้าอักขระพิเศษของ Markdown เพื่อให้ชื่อไฟล์แสดงตามจริง"""
+    return "".join("\\" + ch if ch in "\\`*_{}[]<>~|$#" else ch for ch in text)
+
+
+def update_rows_from_file(new_rows: list[dict[str, Any]], file_name: str) -> dict[str, Any]:
+    """อัปเดตรายการ/ยอดในระบบจากไฟล์ใหม่ โดยคงยอดนับจริงที่กรอกไว้
+
+    - หมวดที่อยู่ในไฟล์ใหม่: ใช้ลำดับสินค้าและยอดในระบบตามไฟล์ใหม่ทั้งหมวด
+      ยอดนับจริงเดิมตามสินค้าด้วยการจับคู่ หมวด + ชื่อสินค้า (ไม่ใช่ตามตำแหน่งแถว)
+      สินค้าใหม่ที่เพิ่มเข้ามาจะเว้นช่องนับจริงว่างไว้
+    - สินค้าเดิมที่ไม่อยู่ในไฟล์ใหม่: ถ้ากรอกยอดนับไว้แล้วจะเก็บไว้ท้ายหมวด ถ้ายังไม่กรอกจะนำออก
+    - หมวดที่ไม่อยู่ในไฟล์ใหม่: คงเดิมทั้งหมด
+    """
+    if "current_edited_df" in st.session_state:
+        current_df = st.session_state["current_edited_df"].copy()
+        if "ลำดับ" in current_df.columns:
+            current_df = current_df.drop(columns=["ลำดับ"])
+        existing_rows = current_df.to_dict("records")
+    else:
+        existing_rows = list(st.session_state.get("inventory_rows", []))
+
+    existing_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in existing_rows:
+        key = (str(row.get("Category", "")), _product_key(row.get("Product", "")))
+        existing_by_key.setdefault(key, row)
+
+    new_categories = list(dict.fromkeys(str(r["Category"]) for r in new_rows))
+    new_category_set = set(new_categories)
+
+    result: list[dict[str, Any]] = [
+        {
+            "Category": str(r.get("Category", "")),
+            "Product": r.get("Product", ""),
+            "System qty": r.get("System qty", 0),
+            "Actual qty": _qty_to_text(r.get("Actual qty")),
+        }
+        for r in existing_rows
+        if str(r.get("Category", "")) not in new_category_set
+    ]
+
+    updated = 0
+    added = 0
+    dropped = 0
+    kept: list[str] = []
+    for cat in new_categories:
+        matched_keys: set[tuple[str, str]] = set()
+        for new_row in new_rows:
+            if str(new_row["Category"]) != cat:
+                continue
+            key = (cat, _product_key(new_row["Product"]))
+            old_row = existing_by_key.get(key)
+            if old_row is None:
+                added += 1
+                actual_text = ""
+            else:
+                updated += 1
+                actual_text = _qty_to_text(old_row.get("Actual qty"))
+            matched_keys.add(key)
+            result.append(
+                {
+                    "Category": cat,
+                    "Product": new_row["Product"],
+                    "System qty": new_row["System qty"],
+                    "Actual qty": actual_text,
+                }
+            )
+
+        # สินค้าเดิมของหมวดนี้ที่ไม่อยู่ในไฟล์ใหม่
+        for old_row in existing_rows:
+            if str(old_row.get("Category", "")) != cat:
+                continue
+            key = (cat, _product_key(old_row.get("Product", "")))
+            if key in matched_keys:
+                continue
+            matched_keys.add(key)
+            actual_text = _qty_to_text(old_row.get("Actual qty"))
+            if actual_text:
+                kept.append(f"{old_row.get('Product', '')} ({cat})")
+                result.append(
+                    {
+                        "Category": cat,
+                        "Product": old_row.get("Product", ""),
+                        "System qty": old_row.get("System qty", 0),
+                        "Actual qty": actual_text,
+                    }
+                )
+            else:
+                dropped += 1
+
+    st.session_state["inventory_rows"] = result
+    st.session_state["current_edited_df"] = pd.DataFrame(result)
+    st.session_state["source_label"] = f"อัปโหลด {file_name}"
+    st.session_state["current_file_name"] = file_name
+    st.session_state["is_sample_data"] = False
+    st.session_state["editor_version"] = st.session_state.get("editor_version", 0) + 1
+    return {
+        "mode": "update",
+        "file": file_name,
+        "categories": new_categories,
+        "updated": updated,
+        "added": added,
+        "kept": kept,
+        "dropped": dropped,
+    }
+
+
+def update_cost_rows_from_file(new_cost_rows: list[dict[str, Any]], file_name: str) -> dict[str, Any]:
+    """อัปเดตรายการ Cost จากไฟล์ PDF ใหม่ โดยจับคู่ด้วยชื่อสินค้า
+
+    - สินค้าที่มีอยู่แล้ว: ใช้ Cost ใหม่แทน
+    - สินค้าใหม่ที่ไม่เคยมี: เพิ่มเข้าไป
+    - สินค้าเดิมที่ไม่อยู่ในไฟล์ใหม่: คงเดิม
+    """
+    merged: dict[str, dict[str, Any]] = {}
+    for row in st.session_state.get("cost_rows", []):
+        key = _product_key(row.get("Product"))
+        if key:
+            merged[key] = {"Product": row.get("Product"), "Cost": row.get("Cost")}
+
+    updated = 0
+    added = 0
+    price_changed = 0
+    for row in new_cost_rows:
+        key = _product_key(row.get("Product"))
+        if not key:
+            continue
+        if key in merged:
+            updated += 1
+            old_cost = _cost_from_text(merged[key].get("Cost"))
+            new_cost = _cost_from_text(row.get("Cost"))
+            if old_cost is None or new_cost is None or abs(old_cost - new_cost) > 1e-9:
+                price_changed += 1
+        else:
+            added += 1
+        merged[key] = {"Product": row.get("Product"), "Cost": row.get("Cost")}
+
+    st.session_state["cost_rows"] = list(merged.values())
+    st.session_state["cost_source_label"] = file_name
+    return {
+        "mode": "update",
+        "file": file_name,
+        "updated": updated,
+        "price_changed": price_changed,
+        "added": added,
+        "unchanged": len(merged) - updated - added,
+    }
+
+
 if "inventory_rows" not in st.session_state:
     load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน", is_sample=True)
 if "cost_rows" not in st.session_state:
@@ -818,41 +967,107 @@ if "cost_source_label" not in st.session_state:
     st.session_state["cost_source_label"] = ""
 if "monthly_sales_val" not in st.session_state:
     st.session_state["monthly_sales_val"] = 0.0
+if "current_file_name" not in st.session_state:
+    st.session_state["current_file_name"] = ""
+if "cost_update_uploader_version" not in st.session_state:
+    st.session_state["cost_update_uploader_version"] = 0
+if "update_uploader_version" not in st.session_state:
+    st.session_state["update_uploader_version"] = 0
 
 
 with st.sidebar:
     st.header("นำเข้าข้อมูล")
-    uploaded_file = st.file_uploader(
-        "อัปโหลดไฟล์ Excel รายการสินค้า (1 ไฟล์)",
-        type=["xlsx", "xls"],
-        accept_multiple_files=False,
-        help="อัปโหลดไฟล์เดียว ระบบจะแยกสินค้าเป็น 11 หมวดตามคอลัมน์ A (หรือชื่อชีต)",
-    )
-    if uploaded_file is not None:
-        file_key = f"{uploaded_file.name}:{uploaded_file.size}"
-        if st.session_state.get("uploaded_files_key") != file_key:
-            parsed_rows: list[dict[str, Any]] = []
-            skipped_rows: dict[str, int] = {}
-            with st.spinner("กำลังอ่านรายการสินค้าจาก Excel..."):
-                try:
-                    parsed_rows, skipped_rows = parse_excel(uploaded_file.getvalue())
-                except Exception as error:
-                    st.error(f"อ่านไฟล์ {uploaded_file.name} ไม่สำเร็จ: {error}")
+    if st.session_state.get("is_sample_data", False):
+        # ยังไม่มีข้อมูลจริง: นำเข้าไฟล์รายการสินค้าครั้งแรก
+        uploaded_file = st.file_uploader(
+            "อัปโหลดไฟล์ Excel รายการสินค้า (1 ไฟล์)",
+            type=["xlsx", "xls"],
+            accept_multiple_files=False,
+            help="อัปโหลดไฟล์เดียว ระบบจะแยกสินค้าเป็น 11 หมวดตามคอลัมน์ A (หรือชื่อชีต)",
+        )
+        if uploaded_file is not None:
+            file_key = f"{uploaded_file.name}:{uploaded_file.size}"
+            if st.session_state.get("uploaded_files_key") != file_key:
+                parsed_rows: list[dict[str, Any]] = []
+                skipped_rows: dict[str, int] = {}
+                with st.spinner("กำลังอ่านรายการสินค้าจาก Excel..."):
+                    try:
+                        parsed_rows, skipped_rows = parse_excel(uploaded_file.getvalue())
+                    except Exception as error:
+                        st.error(f"อ่านไฟล์ {uploaded_file.name} ไม่สำเร็จ: {error}")
 
-            st.session_state["uploaded_files_key"] = file_key
-            found_categories = {row["Category"] for row in parsed_rows}
-            st.session_state["import_report"] = {
-                "file": uploaded_file.name,
-                "count": len(parsed_rows),
-                "skipped": skipped_rows,
-                "missing": [c for c in STOCK_CATEGORIES if c not in found_categories],
-            }
-            if parsed_rows:
-                merge_new_rows(parsed_rows, f"อัปโหลด {uploaded_file.name}")
-                st.rerun()
+                st.session_state["uploaded_files_key"] = file_key
+                found_categories = {row["Category"] for row in parsed_rows}
+                st.session_state["import_report"] = {
+                    "mode": "import",
+                    "file": uploaded_file.name,
+                    "count": len(parsed_rows),
+                    "skipped": skipped_rows,
+                    "missing": [c for c in STOCK_CATEGORIES if c not in found_categories],
+                }
+                if parsed_rows:
+                    merge_new_rows(parsed_rows, f"อัปโหลด {uploaded_file.name}")
+                    st.session_state["current_file_name"] = uploaded_file.name
+                    st.rerun()
+    else:
+        # มีข้อมูลแล้ว: แสดงชื่อไฟล์ปัจจุบัน และช่องสำหรับอัปเดตรายการ/จำนวนสินค้าในระบบ
+        current_file_name = st.session_state.get("current_file_name") or st.session_state.get(
+            "source_label", ""
+        )
+        st.info(f"📄 ไฟล์รายการสินค้าปัจจุบัน:\n\n{_md_escape(str(current_file_name))}")
+
+        update_file = st.file_uploader(
+            "อัปโหลดไฟล์เพื่ออัปเดตรายการ/จำนวนสินค้าในระบบ",
+            type=["xlsx", "xls"],
+            accept_multiple_files=False,
+            key=f"update_uploader_{st.session_state['update_uploader_version']}",
+            help=(
+                "ใช้เมื่อได้ไฟล์ใหม่ที่ตัวเลขหรือรายการสินค้าเปลี่ยน "
+                "ยอดนับจริงที่กรอกไว้จะยังอยู่ตามสินค้าเดิม สินค้าใหม่จะเว้นว่างไว้ให้กรอก"
+            ),
+        )
+        if update_file is not None:
+            update_key = f"{update_file.name}:{update_file.size}"
+            if st.session_state.get("last_update_key") != update_key:
+                update_parsed: list[dict[str, Any]] = []
+                with st.spinner("กำลังอ่านไฟล์เพื่ออัปเดตรายการ..."):
+                    try:
+                        update_parsed, _ = parse_excel(update_file.getvalue())
+                    except Exception as error:
+                        st.error(f"อ่านไฟล์ {update_file.name} ไม่สำเร็จ: {error}")
+
+                if update_parsed:
+                    st.session_state["import_report"] = update_rows_from_file(
+                        update_parsed, update_file.name
+                    )
+                    st.session_state.pop("last_update_key", None)
+                    # เปลี่ยน key เพื่อล้างช่องอัปโหลด พร้อมรับไฟล์อัปเดตถัดไป
+                    st.session_state["update_uploader_version"] += 1
+                    st.rerun()
+                else:
+                    st.session_state["last_update_key"] = update_key
+                    st.warning("ไม่พบรายการสินค้าใน 11 หมวดจากไฟล์ที่อัปโหลด ข้อมูลเดิมไม่ถูกเปลี่ยนแปลง")
 
     import_report = st.session_state.get("import_report")
-    if import_report:
+    if import_report and import_report.get("mode") == "update":
+        st.success(
+            f"อัปเดตจาก {import_report['file']} เรียบร้อย: "
+            f"อัปเดต {import_report['updated']} รายการ "
+            f"เพิ่มใหม่ {import_report['added']} รายการ"
+        )
+        st.caption("หมวดที่อัปเดต: " + ", ".join(import_report["categories"]))
+        if import_report["kept"]:
+            shown = ", ".join(import_report["kept"][:5])
+            more = f" และอีก {len(import_report['kept']) - 5} รายการ" if len(import_report["kept"]) > 5 else ""
+            st.warning(
+                "สินค้าที่กรอกยอดนับแล้วแต่ไม่อยู่ในไฟล์ใหม่ (เก็บไว้ท้ายหมวด): "
+                f"{shown}{more}"
+            )
+        if import_report["dropped"]:
+            st.info(
+                f"นำออก {import_report['dropped']} รายการที่ไม่อยู่ในไฟล์ใหม่และยังไม่ได้กรอกยอดนับ"
+            )
+    elif import_report:
         if import_report["count"]:
             st.success(
                 f"นำเข้า {import_report['file']} เรียบร้อย {import_report['count']} รายการ"
@@ -864,29 +1079,82 @@ with st.sidebar:
 
     st.divider()
     st.subheader("ไฟล์ Cost สินค้า")
-    cost_pdf = st.file_uploader(
-        "อัปโหลดไฟล์ที่ 2 (PDF เท่านั้น)",
-        type=["pdf"],
-        help="PDF ควรมีคอลัมน์ชื่อสินค้าและ Cost ต่อหน่วย",
-    )
-    if cost_pdf is not None:
-        cost_file_key = f"{cost_pdf.name}:{cost_pdf.size}"
-        if st.session_state.get("cost_pdf_file_key") != cost_file_key:
-            with st.spinner("กำลังอ่าน Cost จากไฟล์ PDF..."):
-                try:
-                    parsed_cost_rows = parse_pdf_costs(cost_pdf.getvalue())
-                except Exception as error:
-                    st.session_state["cost_rows"] = []
-                    st.session_state["cost_source_label"] = ""
-                    st.error(f"อ่านไฟล์ Cost ไม่สำเร็จ: {error}")
-                    parsed_cost_rows = []
-            st.session_state["cost_pdf_file_key"] = cost_file_key
-            if parsed_cost_rows:
-                st.session_state["cost_rows"] = parsed_cost_rows
-                st.session_state["cost_source_label"] = cost_pdf.name
-                st.success(f"พบ Cost {len(parsed_cost_rows)} รายการ")
-            elif not st.session_state.get("cost_source_label"):
-                st.warning("ไม่พบรายการ Cost จากไฟล์ PDF")
+    if not st.session_state.get("cost_rows"):
+        # ยังไม่มี Cost: นำเข้าไฟล์ Cost ครั้งแรก
+        cost_pdf = st.file_uploader(
+            "อัปโหลดไฟล์ที่ 2 (PDF เท่านั้น)",
+            type=["pdf"],
+            help="PDF ควรมีคอลัมน์ชื่อสินค้าและ Cost ต่อหน่วย",
+        )
+        if cost_pdf is not None:
+            cost_file_key = f"{cost_pdf.name}:{cost_pdf.size}"
+            if st.session_state.get("cost_pdf_file_key") != cost_file_key:
+                parsed_cost_rows: list[dict[str, Any]] = []
+                with st.spinner("กำลังอ่าน Cost จากไฟล์ PDF..."):
+                    try:
+                        parsed_cost_rows = parse_pdf_costs(cost_pdf.getvalue())
+                    except Exception as error:
+                        st.error(f"อ่านไฟล์ Cost ไม่สำเร็จ: {error}")
+                st.session_state["cost_pdf_file_key"] = cost_file_key
+                if parsed_cost_rows:
+                    st.session_state["cost_rows"] = parsed_cost_rows
+                    st.session_state["cost_source_label"] = cost_pdf.name
+                    st.session_state["cost_import_report"] = {
+                        "mode": "import",
+                        "file": cost_pdf.name,
+                        "count": len(parsed_cost_rows),
+                    }
+                    st.rerun()
+                else:
+                    st.warning("ไม่พบรายการ Cost จากไฟล์ PDF")
+    else:
+        # มี Cost แล้ว: แสดงชื่อไฟล์ปัจจุบัน และช่องสำหรับอัปเดตรายการ Cost
+        current_cost_file = st.session_state.get("cost_source_label") or "ไม่ทราบชื่อไฟล์"
+        st.info(f"📄 ไฟล์ Cost ปัจจุบัน:\n\n{_md_escape(str(current_cost_file))}")
+
+        cost_update_file = st.file_uploader(
+            "อัปโหลดไฟล์เพื่ออัปเดตรายการ Cost สินค้า",
+            type=["pdf"],
+            key=f"cost_update_uploader_{st.session_state['cost_update_uploader_version']}",
+            help=(
+                "ใช้เมื่อได้ไฟล์ Cost ใหม่ ราคาของสินค้าที่ชื่อตรงกันจะถูกอัปเดต "
+                "สินค้าใหม่จะถูกเพิ่ม และสินค้าเดิมที่ไม่อยู่ในไฟล์ใหม่จะคงเดิม"
+            ),
+        )
+        if cost_update_file is not None:
+            cost_update_key = f"{cost_update_file.name}:{cost_update_file.size}"
+            if st.session_state.get("last_cost_update_key") != cost_update_key:
+                cost_update_parsed: list[dict[str, Any]] = []
+                with st.spinner("กำลังอ่าน Cost จากไฟล์ PDF..."):
+                    try:
+                        cost_update_parsed = parse_pdf_costs(cost_update_file.getvalue())
+                    except Exception as error:
+                        st.error(f"อ่านไฟล์ Cost ไม่สำเร็จ: {error}")
+
+                if cost_update_parsed:
+                    st.session_state["cost_import_report"] = update_cost_rows_from_file(
+                        cost_update_parsed, cost_update_file.name
+                    )
+                    st.session_state.pop("last_cost_update_key", None)
+                    # เปลี่ยน key เพื่อล้างช่องอัปโหลด พร้อมรับไฟล์อัปเดตถัดไป
+                    st.session_state["cost_update_uploader_version"] += 1
+                    st.rerun()
+                else:
+                    st.session_state["last_cost_update_key"] = cost_update_key
+                    st.warning("ไม่พบรายการ Cost จากไฟล์ PDF ข้อมูล Cost เดิมไม่ถูกเปลี่ยนแปลง")
+
+    cost_report = st.session_state.get("cost_import_report")
+    if cost_report and cost_report.get("mode") == "update":
+        st.success(
+            f"อัปเดต Cost จาก {cost_report['file']} เรียบร้อย: "
+            f"ตรงกับรายการเดิม {cost_report['updated']} รายการ "
+            f"(ราคาเปลี่ยน {cost_report['price_changed']}) "
+            f"เพิ่มใหม่ {cost_report['added']} รายการ"
+        )
+        if cost_report["unchanged"]:
+            st.caption(f"สินค้าเดิมที่ไม่อยู่ในไฟล์ใหม่ คงเดิม {cost_report['unchanged']} รายการ")
+    elif cost_report:
+        st.success(f"พบ Cost {cost_report['count']} รายการ")
 
     st.divider()
 
@@ -902,6 +1170,13 @@ with st.sidebar:
                 if "inventory_rows" in draft_data:
                     st.session_state["inventory_rows"] = draft_data["inventory_rows"]
                     st.session_state["source_label"] = draft_data.get("source_label", "โหลดจากไฟล์ความคืบหน้า")
+                    st.session_state["current_file_name"] = draft_data.get(
+                        "current_file_name", st.session_state["source_label"]
+                    )
+                    st.session_state["editor_version"] = st.session_state.get("editor_version", 0) + 1
+                    st.session_state.pop("last_update_key", None)
+                    st.session_state.pop("last_cost_update_key", None)
+                    st.session_state.pop("cost_import_report", None)
                     st.session_state["cost_rows"] = draft_data.get("cost_rows", [])
                     st.session_state["cost_source_label"] = draft_data.get("cost_source_label", "")
                     st.session_state["monthly_sales_val"] = draft_data.get("monthly_sales", 0.0)
@@ -934,6 +1209,7 @@ with st.sidebar:
         draft_payload = json.dumps({
             "inventory_rows": current_rows,
             "source_label": st.session_state.get("source_label", ""),
+            "current_file_name": st.session_state.get("current_file_name", ""),
             "cost_rows": st.session_state.get("cost_rows", []),
             "cost_source_label": st.session_state.get("cost_source_label", ""),
             "monthly_sales": monthly_sales
@@ -953,14 +1229,18 @@ with st.sidebar:
     if st.button("เริ่มจากตัวอย่าง", use_container_width=True):
         st.session_state.pop("uploaded_files_key", None)
         st.session_state.pop("import_report", None)
+        st.session_state.pop("last_update_key", None)
+        st.session_state.pop("last_cost_update_key", None)
+        st.session_state.pop("cost_import_report", None)
+        st.session_state.pop("cost_pdf_file_key", None)
+        st.session_state["current_file_name"] = ""
+        st.session_state["editor_version"] = st.session_state.get("editor_version", 0) + 1
         st.session_state["monthly_sales_val"] = 0.0
         st.session_state["cost_rows"] = []
         st.session_state["cost_source_label"] = ""
         load_rows(SAMPLE_ROWS, "ตัวอย่างสำหรับทดลองใช้งาน", is_sample=True)
         st.rerun()
 
-    if st.session_state.get("cost_source_label"):
-        st.caption(f"ไฟล์ Cost: {st.session_state['cost_source_label']}")
 
 
 st.title("ระบบนับสต็อก Con BLP")
