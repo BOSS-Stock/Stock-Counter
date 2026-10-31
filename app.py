@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import numbers
 import re
 from typing import Any
 
@@ -142,6 +143,104 @@ def _combine_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _product_key(value: Any) -> str:
     return re.sub(r"\s+", " ", _clean_product(value)).casefold()
+
+
+def _format_qty(value: int | float) -> str:
+    """แปลงตัวเลขเป็นข้อความสำหรับช่องนับจริง (ตัด .0 และศูนย์ท้ายทศนิยม)"""
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def _qty_to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, numbers.Real):
+        return "" if pd.isna(value) else _format_qty(value)
+    return "" if pd.isna(value) else str(value).strip()
+
+
+def evaluate_qty_expression(value: Any) -> int | float | None:
+    """คำนวณสูตรยอดนับแบบ Excel เช่น '+1+5+7' -> 13, '(2+3)*12' -> 60
+
+    รองรับ + - * / ( ) และ x × ÷ ตัวเลขไทย เครื่องหมายจุลภาค
+    คืน None ถ้าช่องว่าง สูตรไม่ถูกต้อง หรือผลลัพธ์ติดลบ
+    (เขียนตัวอ่านสูตรเอง ไม่ใช้ eval จึงไม่เสี่ยงรันโค้ดแปลกปลอม)
+    """
+    text = _qty_to_text(value)
+    text = _thai_digits_to_arabic(text).replace(",", "")
+    text = text.replace("×", "*").replace("÷", "/").replace("x", "*").replace("X", "*")
+    text = re.sub(r"\s+", "", text)
+    if not text or len(text) > 200:
+        return None
+
+    tokens = re.findall(r"\d+(?:\.\d+)?|\.\d+|[+\-*/()]", text)
+    if "".join(tokens) != text:
+        return None
+
+    position = [0]
+
+    def peek() -> str | None:
+        return tokens[position[0]] if position[0] < len(tokens) else None
+
+    def take() -> str:
+        token = tokens[position[0]]
+        position[0] += 1
+        return token
+
+    def parse_expr() -> float:
+        result = parse_term()
+        while peek() in ("+", "-"):
+            if take() == "+":
+                result += parse_term()
+            else:
+                result -= parse_term()
+        return result
+
+    def parse_term() -> float:
+        result = parse_factor()
+        while peek() in ("*", "/"):
+            if take() == "*":
+                result *= parse_factor()
+            else:
+                result /= parse_factor()
+        return result
+
+    def parse_factor() -> float:
+        token = peek()
+        if token is None:
+            raise ValueError("incomplete expression")
+        if token in ("+", "-"):
+            take()
+            factor = parse_factor()
+            return factor if token == "+" else -factor
+        if token == "(":
+            take()
+            inner = parse_expr()
+            if peek() != ")":
+                raise ValueError("missing )")
+            take()
+            return inner
+        if token in (")", "*", "/"):
+            raise ValueError("unexpected token")
+        take()
+        return float(token)
+
+    try:
+        result = parse_expr()
+        if position[0] != len(tokens):
+            return None
+        if result != result or result in (float("inf"), float("-inf")) or result < 0:
+            return None
+    except (ValueError, ZeroDivisionError, OverflowError, RecursionError):
+        return None
+
+    result = round(result, 6)
+    return int(result) if float(result).is_integer() else result
 
 
 # 11 หมวดสินค้าที่ระบบจะนำมาทำตาราง (เรียงตามลำดับที่แสดงผล)
@@ -879,12 +978,13 @@ raw_input_df = pd.DataFrame(rows)
 if "Category" not in raw_input_df.columns:
     raw_input_df["Category"] = "ทั่วไป"
 
-raw_input_df["Actual qty"] = raw_input_df["Actual qty"].astype(object).where(
-    raw_input_df["Actual qty"].notna(), ""
-)
+raw_input_df["Actual qty"] = raw_input_df["Actual qty"].map(_qty_to_text).astype(object)
 
 st.subheader("กรอกยอดนับจริง")
-st.caption("แก้ไขเฉพาะคอลัมน์ “นับจริงหน้าร้าน” จากนั้นดูผลสรุปด้านล่าง")
+st.caption(
+    "แก้ไขเฉพาะคอลัมน์ “นับจริงหน้าร้าน” พิมพ์ตัวเลขย่อยได้ เช่น +1+5+7 แล้วกด Enter "
+    "ระบบจะรวมเป็นยอดเดียวให้ จากนั้นดูผลสรุปด้านล่าง"
+)
 
 categories = sorted(raw_input_df["Category"].unique(), key=_category_sort_key)
 tab_titles = ["ภาพรวม (รวมทุกหมวด)"] + [f"📦 {cat}" for cat in categories]
@@ -892,6 +992,8 @@ tabs = st.tabs(tab_titles)
 
 # หน้ารวมทุกหมวด (Data Editor)
 with tabs[0]:
+    formula_warning_slot = st.empty()
+    editor_version = st.session_state.get("editor_version", 0)
     all_edited_dfs = []
     for cat in categories:
         cat_str = str(cat)
@@ -914,16 +1016,51 @@ with tabs[0]:
                 "System qty": st.column_config.NumberColumn("ในระบบ", disabled=True),
                 "Actual qty": st.column_config.TextColumn(
                     "นับจริงหน้าร้าน",
-                    validate=r"^\s*\d*(?:\.\d+)?\s*$",
-                    help="ใส่จำนวนที่นับได้จริงเป็นตัวเลข",
+                    validate=r"^[\s\d.,+\-*/()xX×÷๐-๙]*$",
+                    help="ใส่ตัวเลข หรือสูตร เช่น +1+5+7 แล้วกด Enter ระบบจะรวมเป็นยอดเดียวให้",
                 ),
             },
-            key=f"inventory_editor_cat_{cat}",
+            key=f"inventory_editor_cat_{cat}_{editor_version}",
         )
         all_edited_dfs.append(edited_cat_df)
 
     edited_df = pd.concat(all_edited_dfs, ignore_index=True)
+
+    # คำนวณสูตรในช่องนับจริง (เช่น +1+5+7 -> 13) แล้วแทนที่ช่องด้วยตัวเลขรวม
+    normalized_texts: list[str] = []
+    invalid_entries: list[str] = []
+    needs_commit = False
+    for row_idx, raw_value in edited_df["Actual qty"].items():
+        text = _qty_to_text(raw_value)
+        if not text:
+            normalized_texts.append("")
+            continue
+        qty_value = evaluate_qty_expression(text)
+        if qty_value is None:
+            invalid_entries.append(f"{edited_df.at[row_idx, 'Product']} ({text})")
+            normalized_texts.append(text)
+            continue
+        new_text = _format_qty(qty_value)
+        if new_text != text:
+            needs_commit = True
+        normalized_texts.append(new_text)
+    edited_df["Actual qty"] = normalized_texts
     st.session_state["current_edited_df"] = edited_df
+
+    if needs_commit:
+        # เขียนค่าที่คำนวณแล้วกลับเข้าข้อมูล และสร้างตารางใหม่ (เปลี่ยน key) เพื่อให้ช่องแสดงยอดรวม
+        st.session_state["inventory_rows"] = edited_df.drop(
+            columns=["ลำดับ"], errors="ignore"
+        ).to_dict("records")
+        st.session_state["editor_version"] = editor_version + 1
+        st.rerun()
+
+    if invalid_entries:
+        shown = ", ".join(invalid_entries[:10])
+        more = f" และอีก {len(invalid_entries) - 10} รายการ" if len(invalid_entries) > 10 else ""
+        formula_warning_slot.warning(
+            f"สูตรไม่ถูกต้อง ยังไม่ถูกนับเป็นยอดนับจริง: {shown}{more}"
+        )
 
 # หน้าแท็บรายหมวด
 for i, cat in enumerate(categories):
