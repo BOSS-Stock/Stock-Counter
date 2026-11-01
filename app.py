@@ -772,15 +772,29 @@ def status_cell_style(status: Any) -> str:
     )
 
 
-DIFF_LABELS = {"เกิน": "➕ เกิน", "ขาด": "➖ ขาด", "ตรงกัน": "✅ ตรงกัน"}
+def _format_qty2(value: Any) -> str:
+    """แสดงตัวเลขทศนิยมไม่เกิน 2 ตำแหน่ง (ตัดศูนย์ท้ายทิ้ง เช่น 50.00 -> 50, 2.50 -> 2.5)"""
+    text = f"{float(value):.2f}".rstrip("0").rstrip(".")
+    return "0" if text in ("", "-0") else text
+
+
+def _format_diff_label(diff: Any) -> str:
+    """ผลต่างแบบมีเครื่องหมาย: +10 (เกิน), -10 (ขาด), ตรง (ไม่ต่างกัน)"""
+    rounded = round(float(diff), 2)
+    if rounded == 0:
+        return "ตรง"
+    return ("+" if rounded > 0 else "-") + _format_qty2(abs(rounded))
 
 
 def diff_label_style(label: Any) -> str:
-    if not isinstance(label, str):
+    if not isinstance(label, str) or not label:
         return ""
-    for key in ("ตรงกัน", "ขาด", "เกิน"):
-        if key in label:
-            return status_cell_style(key)
+    if label == "ตรง":
+        return status_cell_style("ตรงกัน")
+    if label.startswith("+"):
+        return status_cell_style("เกิน")
+    if label.startswith("-"):
+        return status_cell_style("ขาด")
     return ""
 
 
@@ -1366,9 +1380,10 @@ for i, cat in enumerate(categories):
     with tabs[i + 1]:
         cat_result = result_df[result_df["Category"] == cat].copy()
         cat_entered = cat_result["Actual qty"].notna()
+        cat_diff = cat_result["Diff"].round(2)
         cat_result["ผลต่าง"] = [
-            DIFF_LABELS.get(status, "") if entered else ""
-            for status, entered in zip(cat_result["Status"], cat_entered)
+            _format_diff_label(diff) if entered else ""
+            for diff, entered in zip(cat_diff, cat_entered)
         ]
 
         view_choice = st.selectbox(
@@ -1378,26 +1393,34 @@ for i, cat in enumerate(categories):
             label_visibility="collapsed",
         )
         if view_choice == "ขาด":
-            row_mask = cat_entered & (cat_result["Diff"] < 0)
+            row_mask = cat_entered & (cat_diff < 0)
         elif view_choice == "เกิน":
-            row_mask = cat_entered & (cat_result["Diff"] > 0)
+            row_mask = cat_entered & (cat_diff > 0)
         elif view_choice == "ตรงกัน":
-            row_mask = cat_entered & (cat_result["Diff"] == 0)
+            row_mask = cat_entered & (cat_diff == 0)
         elif view_choice == "ยังไม่ได้นับ":
             row_mask = ~cat_entered
         else:
             row_mask = cat_entered | ~cat_entered
 
-        view_df = cat_result.loc[row_mask, ["ลำดับ", "Product", "System qty", "Actual qty", "ผลต่าง"]]
+        view_df = cat_result.loc[
+            row_mask, ["ลำดับ", "Product", "System qty", "Actual qty", "ผลต่าง"]
+        ].copy()
+        view_df["System qty"] = view_df["System qty"].map(_format_qty2)
+        view_df["Actual qty"] = view_df["Actual qty"].map(
+            lambda v: "" if pd.isna(v) else _format_qty2(v)
+        )
         st.dataframe(
-            view_df.style.map(diff_label_style, subset=["ผลต่าง"]),
+            view_df.style.map(diff_label_style, subset=["ผลต่าง"]).set_properties(
+                subset=["System qty", "Actual qty"], **{"text-align": "right"}
+            ),
             hide_index=True,
             use_container_width=True,
             column_config={
                 "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
                 "Product": st.column_config.TextColumn("สินค้า"),
-                "System qty": st.column_config.NumberColumn("ในระบบ"),
-                "Actual qty": st.column_config.NumberColumn("นับจริง"),
+                "System qty": st.column_config.TextColumn("ในระบบ"),
+                "Actual qty": st.column_config.TextColumn("นับจริง"),
                 "ผลต่าง": st.column_config.TextColumn("ผลต่าง"),
             },
         )
