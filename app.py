@@ -892,17 +892,34 @@ def render_packaging_groups(cat_result: pd.DataFrame) -> None:
         )
 
     with summary_box:
-        st.dataframe(
-            pd.DataFrame(summary_rows).style.map(diff_label_style, subset=["รวม Diff"]),
-            hide_index=True,
-            use_container_width=True,
-            height=(len(summary_rows) + 1) * 35 + 3,
-            column_config={
-                "รายการ": st.column_config.TextColumn("รายการ"),
-                "สินค้าที่เลือก": st.column_config.NumberColumn("เลือก (ตัว)", format="%.0f"),
-                "รวม Diff": st.column_config.TextColumn("รวม Diff"),
-            },
+        styled_summary = pd.DataFrame(summary_rows).style.map(
+            diff_label_style, subset=["รวม Diff"]
         )
+        # ตารางแคบพอดีเนื้อหา (ไม่ขยายเต็มจอ) ลองกำหนดความกว้างเป็นพิกเซลก่อน
+        # ถ้า Streamlit รุ่นที่ใช้ไม่รองรับ ให้ใช้ขนาดสำเร็จรูป small/medium แทน
+        width_options = [
+            ((140, 90, 90), 330),
+            (("medium", "small", "small"), 350),
+        ]
+        for attempt, ((name_w, count_w, total_w), table_width) in enumerate(width_options):
+            try:
+                st.dataframe(
+                    styled_summary,
+                    hide_index=True,
+                    width=table_width,
+                    height=(len(summary_rows) + 1) * 35 + 3,
+                    column_config={
+                        "รายการ": st.column_config.TextColumn("รายการ", width=name_w),
+                        "สินค้าที่เลือก": st.column_config.NumberColumn(
+                            "เลือก (ตัว)", format="%.0f", width=count_w
+                        ),
+                        "รวม Diff": st.column_config.TextColumn("รวม Diff", width=total_w),
+                    },
+                )
+                break
+            except Exception:
+                if attempt == len(width_options) - 1:
+                    raise
         duplicates = [
             f"{name} ({', '.join(groups)})" for name, groups in usage.items() if len(groups) > 1
         ]
