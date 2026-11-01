@@ -772,6 +772,18 @@ def status_cell_style(status: Any) -> str:
     )
 
 
+DIFF_LABELS = {"เกิน": "➕ เกิน", "ขาด": "➖ ขาด", "ตรงกัน": "✅ ตรงกัน"}
+
+
+def diff_label_style(label: Any) -> str:
+    if not isinstance(label, str):
+        return ""
+    for key in ("ตรงกัน", "ขาด", "เกิน"):
+        if key in label:
+            return status_cell_style(key)
+    return ""
+
+
 def load_rows(rows: list[dict[str, Any]], source_label: str, is_sample: bool = False) -> None:
     st.session_state["inventory_rows"] = rows
     st.session_state["source_label"] = source_label
@@ -1342,32 +1354,53 @@ with tabs[0]:
             f"สูตรไม่ถูกต้อง ยังไม่ถูกนับเป็นยอดนับจริง: {shown}{more}"
         )
 
-# หน้าแท็บรายหมวด
-for i, cat in enumerate(categories):
-    with tabs[i + 1]:
-        cat_df = raw_input_df[raw_input_df["Category"] == cat].copy()
-        if "ลำดับ" in cat_df.columns:
-            cat_df = cat_df.drop(columns=["ลำดับ"])
-        cat_df.insert(0, "ลำดับ", range(1, len(cat_df) + 1))
-        st.dataframe(
-            cat_df,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
-                "Category": st.column_config.TextColumn("หมวดสินค้า"),
-                "Product": st.column_config.TextColumn("สินค้า"),
-                "System qty": st.column_config.NumberColumn("ในระบบ"),
-                "Actual qty": st.column_config.TextColumn("นับจริงหน้าร้าน"),
-            },
-        )
-
 result_df = make_result_table(edited_df)
 actual_entered = result_df["Actual qty"].notna()
 diff_series = result_df.loc[actual_entered, "Diff"]
 short_count = int((diff_series < 0).sum())
 over_count = int((diff_series > 0).sum())
 match_count = int((diff_series == 0).sum())
+
+# หน้าแท็บรายหมวด: แสดงยอดในระบบ นับจริง และผลต่าง (อัปเดตตามที่กรอกในแท็บภาพรวม)
+for i, cat in enumerate(categories):
+    with tabs[i + 1]:
+        cat_result = result_df[result_df["Category"] == cat].copy()
+        cat_entered = cat_result["Actual qty"].notna()
+        cat_result["ผลต่าง"] = [
+            DIFF_LABELS.get(status, "") if entered else ""
+            for status, entered in zip(cat_result["Status"], cat_entered)
+        ]
+
+        view_choice = st.selectbox(
+            "แสดงรายการ",
+            ["ทั้งหมด", "ขาด", "เกิน", "ตรงกัน", "ยังไม่ได้นับ"],
+            key=f"diff_filter_{cat}",
+            label_visibility="collapsed",
+        )
+        if view_choice == "ขาด":
+            row_mask = cat_entered & (cat_result["Diff"] < 0)
+        elif view_choice == "เกิน":
+            row_mask = cat_entered & (cat_result["Diff"] > 0)
+        elif view_choice == "ตรงกัน":
+            row_mask = cat_entered & (cat_result["Diff"] == 0)
+        elif view_choice == "ยังไม่ได้นับ":
+            row_mask = ~cat_entered
+        else:
+            row_mask = cat_entered | ~cat_entered
+
+        view_df = cat_result.loc[row_mask, ["ลำดับ", "Product", "System qty", "Actual qty", "ผลต่าง"]]
+        st.dataframe(
+            view_df.style.map(diff_label_style, subset=["ผลต่าง"]),
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
+                "Product": st.column_config.TextColumn("สินค้า"),
+                "System qty": st.column_config.NumberColumn("ในระบบ"),
+                "Actual qty": st.column_config.NumberColumn("นับจริง"),
+                "ผลต่าง": st.column_config.TextColumn("ผลต่าง"),
+            },
+        )
 
 st.subheader("ภาพรวม")
 metric_columns = st.columns(4)
@@ -1377,47 +1410,6 @@ metric_columns[2].metric("ขาด", short_count)
 metric_columns[3].metric("เกิน", over_count)
 
 if actual_entered.any():
-    st.subheader("ผลต่างสต็อก")
-    filter_choice = st.selectbox(
-        "แสดงรายการ",
-        ["ทั้งหมด", "ขาด", "เกิน", "ตรงกัน", "ยังไม่ได้นับ"],
-        label_visibility="collapsed",
-    )
-    filtered = result_df.copy()
-    if filter_choice == "ขาด":
-        filtered = filtered[filtered["Diff"] < 0]
-    elif filter_choice == "เกิน":
-        filtered = filtered[filtered["Diff"] > 0]
-    elif filter_choice == "ตรงกัน":
-        filtered = filtered[filtered["Diff"] == 0]
-    elif filter_choice == "ยังไม่ได้นับ":
-        filtered = filtered[~actual_entered]
-
-    diff_categories = list(filtered["Category"].unique())
-    for cat in diff_categories:
-        cat_str = str(cat)
-        st.markdown(f'<div class="cat-banner">📊 ผลต่างสต็อก — หมวด: {cat_str.upper()}</div>', unsafe_allow_html=True)
-
-        cat_filtered = filtered[filtered["Category"] == cat].copy()
-        if "ลำดับ" in cat_filtered.columns:
-            cat_filtered = cat_filtered.drop(columns=["ลำดับ"])
-        cat_filtered.insert(0, "ลำดับ", range(1, len(cat_filtered) + 1))
-
-        st.dataframe(
-            cat_filtered.style.map(status_cell_style, subset=["Status"]),
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
-                "Category": st.column_config.TextColumn("หมวดสินค้า"),
-                "Product": st.column_config.TextColumn("สินค้า"),
-                "System qty": st.column_config.NumberColumn("ในระบบ"),
-                "Actual qty": st.column_config.NumberColumn("นับจริง", format="%.2f"),
-                "Diff": st.column_config.NumberColumn("Diff", format="%.2f"),
-                "Status": st.column_config.TextColumn("สถานะ"),
-            },
-        )
-
     export_df = result_df.copy()
     export_df["Actual qty"] = export_df["Actual qty"].fillna("")
 
