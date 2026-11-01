@@ -789,7 +789,7 @@ def _format_diff_label(diff: Any) -> str:
 def diff_label_style(label: Any) -> str:
     if not isinstance(label, str) or not label:
         return ""
-    if label == "ตรง":
+    if label in ("ตรง", "0"):
         return status_cell_style("ตรงกัน")
     if label.startswith("+"):
         return status_cell_style("เกิน")
@@ -808,6 +808,108 @@ def _search_mask(names: pd.Series, query: str) -> pd.Series:
     for term in terms:
         mask &= lowered.str.contains(term, regex=False)
     return mask
+
+
+# รายการรวมยอด Diff ในหมวด Packaging (เลือกสินค้าที่จะรวมเองในแต่ละรายการ)
+PACKAGING_GROUPS = [
+    "Box 64oz",
+    "Box 85oz",
+    "Box 46oz",
+    "Box 27oz",
+    "Cup 22oz",
+    "Cup 32oz",
+    "Cup 44oz",
+    "Ziplock 26oz",
+    "Ziplock 46oz",
+    "Ziplock 85oz",
+    "Supersize 355oz",
+]
+
+
+def _packaging_key(index: int) -> str:
+    return f"pkg_group_{index}"
+
+
+def _format_signed_total(value: float) -> str:
+    rounded = round(float(value), 2)
+    if rounded == 0:
+        return "0"
+    return ("+" if rounded > 0 else "-") + _format_qty2(abs(rounded))
+
+
+def render_packaging_groups(cat_result: pd.DataFrame) -> None:
+    """ตารางเล็กรวมยอด Diff ของ Packaging ตามรายการที่เลือกเอง
+
+    แต่ละรายการเลือกสินค้าได้หลายตัวจากหมวด Packaging ระบบรวมยอด Diff (บวก/ลบ) ของสินค้าที่เลือก
+    นับเฉพาะสินค้าที่กรอกยอดนับแล้ว
+    """
+    options = [str(name) for name in cat_result["Product"]]
+    for index in range(len(PACKAGING_GROUPS)):
+        key = _packaging_key(index)
+        current = list(st.session_state.get(key, []))
+        valid = [name for name in current if name in options]
+        if valid != current:
+            st.session_state[key] = valid
+
+    st.markdown(
+        '<div class="cat-banner">🧮 รวมยอด Diff รายการ Packaging (เลือกสินค้าเอง)</div>',
+        unsafe_allow_html=True,
+    )
+    summary_box = st.container()
+    with st.expander("✏️ เลือกสินค้าที่จะรวมในแต่ละรายการ", expanded=False):
+        for index, group in enumerate(PACKAGING_GROUPS):
+            st.multiselect(
+                group,
+                options=options,
+                key=_packaging_key(index),
+                placeholder="เลือกสินค้า...",
+            )
+
+    diff_by_product = dict(zip(cat_result["Product"].astype(str), cat_result["Diff"]))
+    entered_by_product = dict(
+        zip(cat_result["Product"].astype(str), cat_result["Actual qty"].notna())
+    )
+    summary_rows: list[dict[str, Any]] = []
+    usage: dict[str, list[str]] = {}
+    pending = 0
+    for index, group in enumerate(PACKAGING_GROUPS):
+        selected = list(st.session_state.get(_packaging_key(index), []))
+        total = 0.0
+        counted = 0
+        for name in selected:
+            usage.setdefault(name, []).append(group)
+            if entered_by_product.get(name):
+                total += float(diff_by_product[name])
+                counted += 1
+            else:
+                pending += 1
+        summary_rows.append(
+            {
+                "รายการ": group,
+                "สินค้าที่เลือก": len(selected),
+                "รวม Diff": _format_signed_total(total) if counted else "",
+            }
+        )
+
+    with summary_box:
+        st.dataframe(
+            pd.DataFrame(summary_rows).style.map(diff_label_style, subset=["รวม Diff"]),
+            hide_index=True,
+            use_container_width=True,
+            height=(len(summary_rows) + 1) * 35 + 3,
+            column_config={
+                "รายการ": st.column_config.TextColumn("รายการ"),
+                "สินค้าที่เลือก": st.column_config.NumberColumn("เลือก (ตัว)", format="%.0f"),
+                "รวม Diff": st.column_config.TextColumn("รวม Diff"),
+            },
+        )
+        duplicates = [
+            f"{name} ({', '.join(groups)})" for name, groups in usage.items() if len(groups) > 1
+        ]
+        if duplicates:
+            st.warning("สินค้าที่ถูกเลือกในหลายรายการ (ยอดจะถูกนับซ้ำ): " + ", ".join(duplicates))
+        if pending:
+            st.caption(f"มี {pending} รายการที่เลือกไว้แต่ยังไม่ได้กรอกยอดนับ จึงยังไม่ถูกนับรวม")
 
 
 def load_rows(rows: list[dict[str, Any]], source_label: str, is_sample: bool = False) -> None:
@@ -1215,6 +1317,9 @@ with st.sidebar:
                     st.session_state.pop("last_update_key", None)
                     st.session_state.pop("last_cost_update_key", None)
                     st.session_state.pop("cost_import_report", None)
+                    saved_groups = draft_data.get("packaging_groups", {})
+                    for index, group in enumerate(PACKAGING_GROUPS):
+                        st.session_state[_packaging_key(index)] = list(saved_groups.get(group, []))
                     st.session_state["cost_rows"] = draft_data.get("cost_rows", [])
                     st.session_state["cost_source_label"] = draft_data.get("cost_source_label", "")
                     st.session_state["monthly_sales_val"] = draft_data.get("monthly_sales", 0.0)
@@ -1248,6 +1353,10 @@ with st.sidebar:
             "inventory_rows": current_rows,
             "source_label": st.session_state.get("source_label", ""),
             "current_file_name": st.session_state.get("current_file_name", ""),
+            "packaging_groups": {
+                group: st.session_state.get(_packaging_key(index), [])
+                for index, group in enumerate(PACKAGING_GROUPS)
+            },
             "cost_rows": st.session_state.get("cost_rows", []),
             "cost_source_label": st.session_state.get("cost_source_label", ""),
             "monthly_sales": monthly_sales
@@ -1271,6 +1380,8 @@ with st.sidebar:
         st.session_state.pop("last_cost_update_key", None)
         st.session_state.pop("cost_import_report", None)
         st.session_state.pop("cost_pdf_file_key", None)
+        for index in range(len(PACKAGING_GROUPS)):
+            st.session_state.pop(_packaging_key(index), None)
         st.session_state["current_file_name"] = ""
         st.session_state["editor_version"] = st.session_state.get("editor_version", 0) + 1
         st.session_state["monthly_sales_val"] = 0.0
@@ -1446,6 +1557,9 @@ for i, cat in enumerate(categories):
                 "ผลต่าง": st.column_config.TextColumn("ผลต่าง"),
             },
         )
+
+        if str(cat) == "Packaging":
+            render_packaging_groups(cat_result)
 
 st.subheader("ภาพรวม")
 metric_columns = st.columns(4)
