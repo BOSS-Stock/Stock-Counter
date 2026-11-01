@@ -798,6 +798,18 @@ def diff_label_style(label: Any) -> str:
     return ""
 
 
+def _search_mask(names: pd.Series, query: str) -> pd.Series:
+    """True สำหรับแถวที่ชื่อสินค้ามีทุกคำที่พิมพ์ค้นหา (ไม่สนตัวพิมพ์เล็กใหญ่ เว้นวรรคแยกหลายคำ)"""
+    terms = query.casefold().split()
+    mask = pd.Series(True, index=names.index)
+    if not terms:
+        return mask
+    lowered = names.astype(str).str.casefold()
+    for term in terms:
+        mask &= lowered.str.contains(term, regex=False)
+    return mask
+
+
 def load_rows(rows: list[dict[str, Any]], source_label: str, is_sample: bool = False) -> None:
     st.session_state["inventory_rows"] = rows
     st.session_state["source_label"] = source_label
@@ -1386,12 +1398,21 @@ for i, cat in enumerate(categories):
             for diff, entered in zip(cat_diff, cat_entered)
         ]
 
-        view_choice = st.selectbox(
-            "แสดงรายการ",
-            ["ทั้งหมด", "ขาด", "เกิน", "ตรงกัน", "ยังไม่ได้นับ"],
-            key=f"diff_filter_{cat}",
-            label_visibility="collapsed",
-        )
+        filter_col, search_col = st.columns([1, 2])
+        with filter_col:
+            view_choice = st.selectbox(
+                "แสดงรายการ",
+                ["ทั้งหมด", "ขาด", "เกิน", "ตรงกัน", "ยังไม่ได้นับ"],
+                key=f"diff_filter_{cat}",
+                label_visibility="collapsed",
+            )
+        with search_col:
+            tab_search = st.text_input(
+                "ค้นหาสินค้า",
+                key=f"diff_search_{cat}",
+                placeholder="🔍 ค้นหาชื่อสินค้า (เว้นวรรคเพื่อค้นหาหลายคำ)",
+                label_visibility="collapsed",
+            ).strip()
         if view_choice == "ขาด":
             row_mask = cat_entered & (cat_diff < 0)
         elif view_choice == "เกิน":
@@ -1403,6 +1424,7 @@ for i, cat in enumerate(categories):
         else:
             row_mask = cat_entered | ~cat_entered
 
+        row_mask = row_mask & _search_mask(cat_result["Product"], tab_search)
         view_df = cat_result.loc[
             row_mask, ["ลำดับ", "Product", "System qty", "Actual qty", "ผลต่าง"]
         ].copy()
