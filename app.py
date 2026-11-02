@@ -1629,8 +1629,8 @@ if actual_entered.any():
             cost_cats = list(cost_result_df["Category"].unique())
 
             display_cost_cols = [
-                "ลำดับ", "Category", "Product", "System qty", 
-                "Actual qty", "Diff", "Status", "Cost", "Cost Diff"
+                "ลำดับ", "Category", "Product", "System qty",
+                "Actual qty", "Diff", "Cost", "Cost Diff"
             ]
 
             st.write("##### 📋 รายละเอียดตาราง Cost แยกตามหมวดสินค้า")
@@ -1643,18 +1643,25 @@ if actual_entered.any():
                     cat_cost_df = cat_cost_df.drop(columns=["ลำดับ"])
                 cat_cost_df.insert(0, "ลำดับ", range(1, len(cat_cost_df) + 1))
 
+                # ไฮไลต์สีที่ช่อง Cost Diff ตามสถานะ (ขาด/เกิน/ตรงกัน) แทนคอลัมน์สถานะ
+                cost_status = cat_cost_df["Status"]
+
+                def _color_cost_diff(frame: pd.DataFrame, status: pd.Series = cost_status) -> pd.DataFrame:
+                    styles = pd.DataFrame("", index=frame.index, columns=frame.columns)
+                    styles["Cost Diff"] = status.reindex(frame.index).map(status_cell_style).fillna("")
+                    return styles
+
                 st.dataframe(
-                    cat_cost_df[display_cost_cols].style.map(status_cell_style, subset=["Status"]),
+                    cat_cost_df[display_cost_cols].style.apply(_color_cost_diff, axis=None),
                     hide_index=True,
                     use_container_width=True,
                     column_config={
                         "ลำดับ": st.column_config.NumberColumn("ลำดับ", format="%.0f"),
                         "Category": st.column_config.TextColumn("หมวดสินค้า"),
                         "Product": st.column_config.TextColumn("สินค้า"),
-                        "System qty": st.column_config.NumberColumn("ในระบบ"),
+                        "System qty": st.column_config.NumberColumn("ในระบบ", format="%.2f"),
                         "Actual qty": st.column_config.NumberColumn("นับจริง", format="%.2f"),
                         "Diff": st.column_config.NumberColumn("Diff", format="%.2f"),
-                        "Status": st.column_config.TextColumn("สถานะ"),
                         "Cost": st.column_config.NumberColumn("Cost ต่อหน่วย (บาท)", format="%.2f"),
                         "Cost Diff": st.column_config.NumberColumn("Cost Diff", format="%.2f"),
                     },
